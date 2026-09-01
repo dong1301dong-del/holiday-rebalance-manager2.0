@@ -1,0 +1,88 @@
+/* ============ Element Plus 粉色主题覆盖 ============ */
+:root {
+  /* 主色：可爱粉 */
+  --el-color-primary: #ff6fa5;
+  --el-color-primary-light-3: #ff9bc2;
+  --el-color-primary-light-5: #ffb8d4;
+  --el-color-primary-light-7: #ffd6e6;
+  --el-color-primary-light-8: #ffe4ef;
+  --el-color-primary-light-9: #fff1f7;
+  --el-color-primary-dark-2: #f0528f;
+
+  --el-color-success: #54c29a;
+  --el-color-warning: #f0a35e;
+  --el-color-danger: #f1648f;
+  --el-color-error: #f1648f;
+  --el-color-info: #9a7287;
+
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 6px;
+  --el-font-size-base: 14px;
+
+  --el-text-color-primary: #4a2f3c;
+  --el-text-color-regular: #6b4a5a;
+  --el-text-color-secondary: #9a7287;
+  --el-text-color-placeholder: #c39ab2;
+  --el-border-color: #ffd9e8;
+  --el-border-color-light: #ffe6f1;
+  --el-border-color-lighter: #fff0f6;
+  --el-fill-color-blank: #ffffff;
+  --el-bg-color: #ffffff;
+  --el-bg-color-page: #fff7fb;
+}
+
+/* 表格表头粉色底 */
+.el-table th.el-table__cell {
+  background-color: var(--el-color-primary-light-9) !important;
+  color: var(--el-text-color-primary);
+  font-weight: 700;
+}
+
+/* 表格行 hover */
+.el-table__body tr:hover > td.el-table__cell {
+  background-color: var(--el-color-primary-light-9) !important;
+}
+
+/* 主按钮 */
+.el-button--primary {
+  --el-button-bg-color: #ff6fa5;
+  --el-button-border-color: #ff6fa5;
+  --el-button-hover-bg-color: #ff8dbb;
+  --el-button-hover-border-color: #ff8dbb;
+  --el-button-active-bg-color: #f0528f;
+  --el-button-active-border-color: #f0528f;
+}
+
+/* 分页居中 */
+.el-pagination {
+  justify-content: flex-end;
+  padding: 12px 0 0;
+}
+
+/* 弹窗圆角 */
+.el-dialog {
+  border-radius: 14px;
+}
+.el-dialog__header {
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  margin-right: 0;
+  padding: 16px 20px;
+}
+.el-dialog__title {
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+}
+
+/* 抽屉标题 */
+.el-drawer__header {
+  margin-bottom: 0;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  font-weight: 700;
+}
+
+/* 表单标签 */
+.el-form-item__label {
+  color: var(--el-text-color-regular);
+  font-weight: 600;
+}

@@ -1,0 +1,18 @@
+# 构建产物
+server-java/target/
+web/node_modules/
+web/dist/
+*.log
+
+# IDE / 编辑器
+.idea/
+.vscode/
+*.iml
+*.swp
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 本地项目记忆与缓存（非源码）
+.workbuddy/
