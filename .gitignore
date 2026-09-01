@@ -1,5 +1,6 @@
 # 构建产物
 server-java/target/
+server-java/src/main/resources/static/
 web/node_modules/
 web/dist/
 *.log

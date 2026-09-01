@@ -37,11 +37,15 @@ cd server-java
 mvn clean package -DskipTests
 java -jar target/server-java-1.0.0.jar
 
-# 2. 前端（开发模式，或构建后由后端静态托管）
+# 2. 前端（构建后由后端 static 目录托管）
 cd web
 npm install
-npm run build        # 产物由后端 static 目录托管，无需单独起前端服务
-# 或：npm run dev     # 独立开发服务器
+npm run build                       # 产出在 web/dist
+# 将前端构建产物同步到后端静态资源目录，使 jar 自带界面：
+#   Windows:  xcopy /E /I web\dist server-java\src\main\resources\static
+#   macOS/Linux: cp -r web/dist/. server-java/src/main/resources/static/
+# 或：npm run dev                    # 仅独立开发服务器
+
 ```
 
 访问 `http://localhost:8600`，默认管理员账号 `admin` / 初始密码 `Abc_123456`（首次登录需改密）。
