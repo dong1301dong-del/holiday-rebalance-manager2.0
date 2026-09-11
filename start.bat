@@ -2,6 +2,36 @@
 chcp 65001 >nul
 setlocal
 set JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.20.101-hotspot
+
+REM === 载入敏感环境变量（数据库口令、JWT 密钥） ===
+REM 这些值不再写死在本脚本或 application.yml 中，而是由同目录的 env.local.bat 提供；
+REM 该文件已被 .gitignore 忽略，请勿提交到代码仓库。
+if exist "%~dp0env.local.bat" (
+  call "%~dp0env.local.bat"
+) else (
+  echo [错误] 未找到 env.local.bat
+  echo        请在同目录创建该文件并至少设置： DB_USERNAME / DB_PASSWORD / JWT_SECRET
+  echo        可参考仓库说明中的示例；缺少这些变量后端会启动失败（这是刻意的安全设计）。
+  pause
+  exit /b 1
+)
+
+if "%DB_USERNAME%"=="" (
+  echo [错误] env.local.bat 中未设置 DB_USERNAME，后端会拒绝启动。
+  pause
+  exit /b 1
+)
+if "%DB_PASSWORD%"=="" (
+  echo [错误] env.local.bat 中未设置 DB_PASSWORD，后端会拒绝启动。
+  pause
+  exit /b 1
+)
+if "%JWT_SECRET%"=="" (
+  echo [错误] env.local.bat 中未设置 JWT_SECRET，后端会拒绝启动。
+  pause
+  exit /b 1
+)
+
 cd /d "%~dp0server-java"
 
 if not exist target\server-java-1.0.0.jar (
