@@ -62,7 +62,9 @@ async function submit() {
             <tr v-for="c in list" :key="c.id">
               <td style="font-family:monospace;font-weight:600">{{ c.key }}</td>
               <td>{{ c.value }}</td>
-              <td style="color:var(--text-sub)">{{ c.description || '-' }}</td>
+              <td style="color:var(--text-sub)">
+                <span v-if="c.description && c.description.startsWith('【已废弃')" class="cfg-deprecated-tag">已废弃</span>{{ c.description || '-' }}
+              </td>
               <td><button v-permission="'config:edit'" class="btn-text btn-sm" @click="openEdit(c)">编辑</button></td>
             </tr>
           </tbody>
@@ -86,3 +88,19 @@ async function submit() {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* 说明以「【已废弃」开头时，行首加灰色「已废弃」标签，提示管理员该项不生效 */
+.cfg-deprecated-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 18px;
+  color: #909399;
+  background: #f4f4f5;
+  border: 1px solid #e9e9eb;
+  border-radius: 4px;
+  vertical-align: middle;
+}
+</style>

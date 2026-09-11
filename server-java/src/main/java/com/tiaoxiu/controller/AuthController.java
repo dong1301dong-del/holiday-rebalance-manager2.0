@@ -49,6 +49,21 @@ public class AuthController {
     }
 
     /**
+     * 退出登录：作废当前设备的令牌（其余设备不受影响）。
+     *
+     * <p>请求路径：{@code POST /api/auth/logout}；所需权限：已登录。
+     * 通过把当前请求的 JWT 加入黑名单实现单设备登出，不影响其它设备的会话。
+     *
+     * @return 成功返回 code=0
+     */
+    @Operation(summary = "退出登录", description = "作废当前设备的令牌（其余设备不受影响）")
+    @PostMapping("/logout")
+    public Result<Void> logout() {
+        this.authService.logout(AuthService.currentToken());
+        return Result.ok();
+    }
+
+    /**
      * 修改当前登录用户密码。
      *
      * <p>请求路径：{@code POST /api/auth/change-password}；所需权限：已登录。

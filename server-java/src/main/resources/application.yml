@@ -6,15 +6,16 @@ server:
 spring:
   datasource:
     url: jdbc:mysql://localhost:3306/tiaoxiu?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false&createDatabaseIfNotExist=true
-    username: root
-    password: "root"
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       maximum-pool-size: 10
       minimum-idle: 2
   jpa:
     hibernate:
-      ddl-auto: update
+      # 表结构由 sql/ 下的迁移脚本维护；此处只做启动期校验，避免 Hibernate 擅自改表
+      ddl-auto: validate
     show-sql: false
     open-in-view: false
     properties:
@@ -26,13 +27,23 @@ spring:
       max-request-size: 20MB
 
 jwt:
-  secret: "tiaoxiu-default-secret-key-please-change-in-prod-2026-08-28-abcdefghijklmnop"
+  secret: ${JWT_SECRET:tiaoxiu-default-secret-key-please-change-in-prod-2026-08-28-abcdefghijklmnop}
   expiration-hours: 24
 
 app:
   default-password: "Abc_123456"
+  # 内置管理员 admin 的兜底口令：仅由运维通过环境变量下发，界面改密入口对内置管理员不可用
+  admin-default-password: ${ADMIN_DEFAULT_PASSWORD:}
   login-lock-threshold: 5
   login-lock-minutes: 15
+  # 同一来源 IP 在窗口期内允许的最大登录尝试次数（超过则短暂限流）
+  login-ip-limit: 30
+  login-ip-window-seconds: 300
   cors-allowed-origins: "http://localhost:8601,http://127.0.0.1:8601"
-  # 全局写操作冷却：每次增删改落库完成后，至少间隔该毫秒数才允许下一次写操作（防并发冲撞）
-  write-cooldown-ms: 3000
+  # 全局写操作抢锁超时：写请求在此毫秒数内仍未拿到锁，则直接返回 429「系统繁忙」（防并发冲撞，不再排队阻塞）
+  write-lock-timeout-ms: 3000
+  upload:
+    # 允许导入的文件扩展名白名单（逗号分隔）
+    allowed-extensions: xlsx,xls
+    # 单次导入允许的最大数据行数，超过则拒绝
+    max-rows: 5000

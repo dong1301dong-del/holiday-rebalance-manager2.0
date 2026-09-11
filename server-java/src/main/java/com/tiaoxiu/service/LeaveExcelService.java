@@ -1,6 +1,7 @@
 package com.tiaoxiu.service;
 
 import com.tiaoxiu.common.BizException;
+import com.tiaoxiu.common.UploadValidator;
 import com.tiaoxiu.dto.LeaveDto;
 import com.tiaoxiu.entity.User;
 import com.tiaoxiu.repository.UserRepository;
@@ -32,16 +33,19 @@ public class LeaveExcelService {
 
     private final UserRepository userRepository;
     private final LeaveService leaveService;
+    private final UploadValidator uploadValidator;
 
     /**
      * 构造器注入。
      *
      * @param userRepository 用户仓储（按姓名反查员工）
      * @param leaveService   调休使用服务（复用其单条录入逻辑）
+     * @param uploadValidator 上传行数上限校验
      */
-    public LeaveExcelService(UserRepository userRepository, LeaveService leaveService) {
+    public LeaveExcelService(UserRepository userRepository, LeaveService leaveService, UploadValidator uploadValidator) {
         this.userRepository = userRepository;
         this.leaveService = leaveService;
+        this.uploadValidator = uploadValidator;
     }
 
     /**
@@ -67,6 +71,7 @@ public class LeaveExcelService {
             result.setErrors(List.of("文件为空或未读取到任何数据"));
             return result;
         }
+        this.uploadValidator.requireRowCountWithinLimit(rows.size());
 
         Map<String, User> nameIndex = new LinkedHashMap<>();
         Map<String, Integer> duplicated = new LinkedHashMap<>();

@@ -4,6 +4,7 @@ import com.tiaoxiu.common.BizException;
 import com.tiaoxiu.common.PageResult;
 import com.tiaoxiu.common.Result;
 import com.tiaoxiu.common.SecurityUtil;
+import com.tiaoxiu.common.UploadValidator;
 import com.tiaoxiu.dto.LeaveDto;
 import com.tiaoxiu.entity.AuditLog;
 import com.tiaoxiu.service.AuditLogService;
@@ -41,6 +42,7 @@ public class LeaveController {
     private final LeaveService leaveService;
     private final LeaveExcelService leaveExcelService;
     private final AuditLogService auditLogService;
+    private final UploadValidator uploadValidator;
 
     /**
      * 构造器注入。
@@ -48,12 +50,14 @@ public class LeaveController {
      * @param leaveService      调休使用服务
      * @param leaveExcelService 调休使用 Excel 导入导出服务
      * @param auditLogService   审计日志服务（导入导出留痕）
+     * @param uploadValidator   上传文件校验（空文件/大小/类型/行数）
      */
     public LeaveController(LeaveService leaveService, LeaveExcelService leaveExcelService,
-                           AuditLogService auditLogService) {
+                           AuditLogService auditLogService, UploadValidator uploadValidator) {
         this.leaveService = leaveService;
         this.leaveExcelService = leaveExcelService;
         this.auditLogService = auditLogService;
+        this.uploadValidator = uploadValidator;
     }
 
     /**
@@ -236,7 +240,7 @@ public class LeaveController {
     @PostMapping("/import")
     public Result<LeaveDto.ImportResult> importFile(@RequestParam("file") MultipartFile file) {
         requireManage();
-        if (file == null || file.isEmpty()) throw new BizException("请选择要导入的文件");
+        this.uploadValidator.validate(file);
         LeaveDto.ImportResult res = leaveExcelService.importLeaveUsage(file);
         auditLogService.log(AuditLog.MODULE_LEAVE, "导入调休使用记录", "Excel：" + file.getOriginalFilename(),
                 String.format("成功 %d 条，失败 %d 条", res.getSuccess(), res.getFailed()));

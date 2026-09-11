@@ -3,10 +3,14 @@ package com.tiaoxiu.config;
 import com.tiaoxiu.entity.*;
 import com.tiaoxiu.repository.*;
 import com.tiaoxiu.util.PasswordUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
 import java.util.*;
@@ -21,6 +25,8 @@ import java.util.*;
 @Order(1)
 public class DataInitializer implements CommandLineRunner {
 
+    private static final Logger log = LoggerFactory.getLogger(DataInitializer.class);
+
     private final RoleRepository roleRepository;
     private final ResourceRepository resourceRepository;
     private final RoleResourceRepository roleResourceRepository;
@@ -28,6 +34,14 @@ public class DataInitializer implements CommandLineRunner {
     private final UserRoleRepository userRoleRepository;
     private final SystemConfigRepository configRepository;
     private final HolidayRepository holidayRepository;
+
+    /** 环境变量指定的内置管理员密码；有值则优先于默认密码。 */
+    @Value("${app.admin-default-password:}")
+    private String adminDefaultPassword;
+
+    /** 内置管理员密码的回退默认值（未配置环境变量时使用）。 */
+    @Value("${app.default-password:Abc_123456}")
+    private String fallbackPassword;
 
     /**
      * 构造器注入所需的 Repository。
@@ -69,6 +83,7 @@ public class DataInitializer implements CommandLineRunner {
         Map<String, Long> resIds = seedResources();
         seedRoleResources(resIds);
         seedAdmin();
+        ensureBuiltinAdmin();
         seedConfig();
         seed2026Holidays();
     }
@@ -294,9 +309,10 @@ public class DataInitializer implements CommandLineRunner {
         admin.setName("系统管理员");
         admin.setDepartment("管理部");
         admin.setStatus(User.STATUS_ACTIVE);
-        admin.setMustChangePwd(true);
+        admin.setMustChangePwd(false);
+        admin.setBuiltin(true);
         admin.setTokenVersion(1L);
-        admin.setPassword(PasswordUtil.encode("Abc_123456"));
+        admin.setPassword(PasswordUtil.encode(resolveAdminPassword()));
         admin = userRepository.save(admin);
 
         Role adminRole = roleRepository.findByCode(Role.CODE_ADMIN).orElseThrow();
@@ -307,6 +323,69 @@ public class DataInitializer implements CommandLineRunner {
     }
 
     /**
+     * 确保内置管理员处于受控状态：纠正 builtin 标记、关闭「必须改密」、
+     * 并按环境变量同步密码。仅对从旧库升级而来的 admin 生效，全新部署由 {@link #seedAdmin()} 直接落好。
+     */
+    private void ensureBuiltinAdmin() {
+        User admin = findBuiltinAdmin();
+        if (admin == null) {
+            return;
+        }
+        boolean changed = false;
+        if (!Boolean.TRUE.equals(admin.getBuiltin())) {
+            admin.setBuiltin(true);
+            changed = true;
+        }
+        if (Boolean.TRUE.equals(admin.getMustChangePwd())) {
+            admin.setMustChangePwd(false);
+            changed = true;
+            log.info("内置管理员 admin 的「必须改密」已关闭（其密码由环境变量掌管，改密入口对其不可用）");
+        }
+        if (StringUtils.hasText(adminDefaultPassword) && !PasswordUtil.matches(adminDefaultPassword, admin.getPassword())) {
+            admin.setPassword(PasswordUtil.encode(adminDefaultPassword));
+            changed = true;
+            log.info("内置管理员 admin 的密码已按环境变量 ADMIN_DEFAULT_PASSWORD 重置");
+        }
+        if (changed) {
+            userRepository.save(admin);
+        }
+        if (!StringUtils.hasText(adminDefaultPassword)) {
+            log.warn("未配置环境变量 ADMIN_DEFAULT_PASSWORD，内置管理员将继续使用其现有密码；建议在 env.local.bat 中设置该变量，以便统一掌控兜底账号的口令。");
+        }
+    }
+
+    /**
+     * 定位内置管理员账号：优先取 builtin 标记为 true 的用户；旧库升级场景下无该标记时，
+     * 回退到「ADMIN 角色 + 非删除状态」的第一个用户。
+     *
+     * @return 内置管理员账号；定位不到返回 null
+     */
+    private User findBuiltinAdmin() {
+        Optional<User> flagged = userRepository.findByBuiltinTrue();
+        if (flagged.isPresent()) {
+            return flagged.get();
+        }
+        Role adminRole = roleRepository.findByCode(Role.CODE_ADMIN).orElse(null);
+        if (adminRole == null) {
+            return null;
+        }
+        return userRoleRepository.findByRoleId(adminRole.getId()).stream()
+                .map(ur -> userRepository.findById(ur.getUserId()).orElse(null))
+                .filter(Objects::nonNull)
+                .filter(u -> !User.STATUS_DELETED.equals(u.getStatus()))
+                .findFirst().orElse(null);
+    }
+
+    /**
+     * 解析内置管理员密码：环境变量有配置则优先，否则回退到默认密码。
+     *
+     * @return 实际使用的密码明文
+     */
+    private String resolveAdminPassword() {
+        return StringUtils.hasText(adminDefaultPassword) ? adminDefaultPassword : fallbackPassword;
+    }
+
+    /**
      * 播种默认系统配置项（加班时长封顶、时段时长、折算比例等）。
      *
      * <p>仅在配置表为空时执行；已有配置时保留管理员在页面上修改后的值。
@@ -314,11 +393,11 @@ public class DataInitializer implements CommandLineRunner {
     private void seedConfig() {
         if (configRepository.count() > 0) return;
         saveConfig("system.name", "调休管家", "系统名称");
-        saveConfig("overtime.dailyCap", "7.5", "单日有效加班时长封顶（小时）");
-        saveConfig("overtime.period.am", "3.5", "上午时段 09:00-12:30 时长");
-        saveConfig("overtime.period.pm", "4.0", "下午时段 14:00-18:00 时长");
-        saveConfig("leave.ratio.workday", "0.5", "工作日/补班日加班折算比例");
-        saveConfig("leave.ratio.rest", "1", "休息日/法定节假日加班折算比例");
+        saveConfig("leave.ratio.workday", "0.5", "【生效中】法定工作日/补班日加班折算比例");
+        saveConfig("leave.ratio.rest", "1", "【生效中】法定休息日（含法定节假日）加班折算比例");
+        saveConfig("overtime.dailyCap", "7.5", "【已废弃·不生效】单日有效加班时长封顶（小时）");
+        saveConfig("overtime.period.am", "3.5", "【已废弃·不生效】上午时段 09:00-12:30 时长");
+        saveConfig("overtime.period.pm", "4.0", "【已废弃·不生效】下午时段 14:00-18:00 时长");
     }
 
     /**
@@ -340,13 +419,13 @@ public class DataInitializer implements CommandLineRunner {
     private void seed2026Holidays() {
         if (holidayRepository.count() > 0) return;
         // 法定节假日（多日区间）
-        addRange("2026-01-01", "2026-01-01", "元旦", Holiday.TYPE_LEGAL);
-        addRange("2026-02-17", "2026-02-23", "春节", Holiday.TYPE_LEGAL);
-        addRange("2026-04-04", "2026-04-06", "清明节", Holiday.TYPE_LEGAL);
-        addRange("2026-05-01", "2026-05-05", "劳动节", Holiday.TYPE_LEGAL);
-        addRange("2026-06-19", "2026-06-21", "端午节", Holiday.TYPE_LEGAL);
-        addRange("2026-09-25", "2026-09-27", "中秋节", Holiday.TYPE_LEGAL);
-        addRange("2026-10-01", "2026-10-07", "国庆节", Holiday.TYPE_LEGAL);
+        addRange("2026-01-01", "2026-01-01", "元旦", Holiday.TYPE_RESTDAY);
+        addRange("2026-02-17", "2026-02-23", "春节", Holiday.TYPE_RESTDAY);
+        addRange("2026-04-04", "2026-04-06", "清明节", Holiday.TYPE_RESTDAY);
+        addRange("2026-05-01", "2026-05-05", "劳动节", Holiday.TYPE_RESTDAY);
+        addRange("2026-06-19", "2026-06-21", "端午节", Holiday.TYPE_RESTDAY);
+        addRange("2026-09-25", "2026-09-27", "中秋节", Holiday.TYPE_RESTDAY);
+        addRange("2026-10-01", "2026-10-07", "国庆节", Holiday.TYPE_RESTDAY);
     }
 
     /**

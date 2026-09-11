@@ -6,7 +6,6 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
-import java.time.LocalTime;
 import java.util.Collection;
 import java.util.List;
 
@@ -87,9 +86,8 @@ public interface OvertimeRepository extends JpaRepository<OvertimeRecord, Long>,
      * @return 命中的已存在记录（可能为空），调用方需排除正在编辑的自身记录
      */
     @org.springframework.data.jpa.repository.Query(
-            "select r from OvertimeRecord r where r.userId = :uid and r.date = :date "
-                    + "and r.startTime = :start and r.recordMode = 'OVERTIME' and r.status <> 'VOID'")
-    List<OvertimeRecord> findOverlappingStart(@org.springframework.data.repository.query.Param("uid") Long userId,
-                                             @org.springframework.data.repository.query.Param("date") LocalDate date,
-                                             @org.springframework.data.repository.query.Param("start") LocalTime start);
+            "select r from OvertimeRecord r where r.userId = :uid and r.date = :date and r.status <> 'VOID'")
+    List<OvertimeRecord> findEffectiveByUserIdAndDate(
+            @org.springframework.data.repository.query.Param("uid") Long userId,
+            @org.springframework.data.repository.query.Param("date") LocalDate date);
 }

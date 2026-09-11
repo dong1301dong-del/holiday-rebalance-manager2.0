@@ -19,9 +19,44 @@ import java.time.LocalDateTime;
 @Table(name = "holidays")
 public class Holiday {
 
-    public static final String TYPE_LEGAL = "LEGAL";       // 法定节假日
     public static final String TYPE_WORKDAY = "WORKDAY";   // 法定工作日（含正常工作日与调休补班日）
     public static final String TYPE_RESTDAY = "RESTDAY";   // 休息日（周末且非补班）
+    /** @deprecated 三态已合并为双态：LEGAL 与 RESTDAY 折算口径一致，统一按 RESTDAY 处理。保留仅为兼容历史数据。 */
+    @Deprecated
+    public static final String TYPE_LEGAL = "LEGAL";       // 法定节假日（已并入 RESTDAY）
+
+    /**
+     * 把旧三态类型归一到双态：LEGAL 视为 RESTDAY，其余原样返回。
+     *
+     * @param type 原始类型
+     * @return 归一后的类型
+     */
+    public static String normalizeType(String type) {
+        if (TYPE_LEGAL.equals(type)) {
+            return TYPE_RESTDAY;
+        }
+        return type;
+    }
+
+    /**
+     * 判断类型是否属于「休息类」（RESTDAY 或旧 LEGAL）。
+     *
+     * @param type 日类型
+     * @return 属于休息日返回 true
+     */
+    public static boolean isRestLike(String type) {
+        return TYPE_RESTDAY.equals(type) || TYPE_LEGAL.equals(type);
+    }
+
+    /**
+     * 判断类型是否为当前已知的三类之一（WORKDAY / RESTDAY / LEGAL）。
+     *
+     * @param type 日类型
+     * @return 已知返回 true
+     */
+    public static boolean isKnownType(String type) {
+        return TYPE_WORKDAY.equals(type) || TYPE_RESTDAY.equals(type) || TYPE_LEGAL.equals(type);
+    }
 
     public static final String MAKEUP_NAME = "调休补班";
 

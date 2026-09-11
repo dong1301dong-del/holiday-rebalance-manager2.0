@@ -134,7 +134,7 @@ public final class ChineseHolidayRules {
         LocalDate yearEnd = LocalDate.of(year, 12, 31);
         while (!cursor.isAfter(yearEnd)) {
             if (legal.containsKey(cursor)) {
-                result.put(cursor, new DayRule(Holiday.TYPE_LEGAL, legal.get(cursor)));
+                result.put(cursor, new DayRule(Holiday.TYPE_RESTDAY, legal.get(cursor)));
             } else if (makeup.containsKey(cursor)) {
                 result.put(cursor, new DayRule(Holiday.TYPE_WORKDAY, makeup.get(cursor)));
             } else if (isWeekend(cursor)) {
@@ -194,9 +194,8 @@ public final class ChineseHolidayRules {
     public static String typeLabel(String type) {
         if (type == null) return "未知";
         return switch (type) {
-            case Holiday.TYPE_LEGAL -> "法定节假日";
             case Holiday.TYPE_WORKDAY -> "法定工作日";
-            case Holiday.TYPE_RESTDAY -> "休息日";
+            case Holiday.TYPE_RESTDAY, Holiday.TYPE_LEGAL -> "法定休息日";
             default -> type;
         };
     }

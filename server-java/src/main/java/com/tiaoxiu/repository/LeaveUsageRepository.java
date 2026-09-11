@@ -3,6 +3,8 @@ package com.tiaoxiu.repository;
 import com.tiaoxiu.entity.LeaveUsageRecord;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
@@ -44,4 +46,7 @@ public interface LeaveUsageRepository
      * @return 匹配的记录列表
      */
     List<LeaveUsageRecord> findByDateBetweenOrderByDateAscIdAsc(LocalDate from, LocalDate to);
+
+    @Query("select r from LeaveUsageRecord r where r.userId = :uid and r.date = :date and r.status <> 'VOID'")
+    List<LeaveUsageRecord> findEffectiveByUserIdAndDate(@Param("uid") Long userId, @Param("date") LocalDate date);
 }

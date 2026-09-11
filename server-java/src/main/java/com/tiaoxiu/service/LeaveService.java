@@ -54,6 +54,8 @@ public class LeaveService {
     private final UserMessageRepository userMessageRepository;
     private final BalanceService balanceService;
     private final AuditLogService auditLogService;
+    private final RecordConflictGuard conflictGuard;
+    private final HolidayService holidayService;
 
     /**
      * 构造器注入。
@@ -65,11 +67,14 @@ public class LeaveService {
      * @param userMessageRepository  站内消息仓储（透支提醒）
      * @param balanceService         余额引擎（扣减 / 恢复调休余额）
      * @param auditLogService        审计日志服务
+     * @param conflictGuard          记录时间区间冲突守卫
+     * @param holidayService         节假日日历服务（判定休息日 / 节假日名称）
      */
     public LeaveService(LeaveUsageRepository leaveUsageRepository, UserRepository userRepository,
                         UserRoleRepository userRoleRepository, RoleRepository roleRepository,
                         UserMessageRepository userMessageRepository, BalanceService balanceService,
-                        AuditLogService auditLogService) {
+                        AuditLogService auditLogService, RecordConflictGuard conflictGuard,
+                        HolidayService holidayService) {
         this.leaveUsageRepository = leaveUsageRepository;
         this.userRepository = userRepository;
         this.userRoleRepository = userRoleRepository;
@@ -77,6 +82,8 @@ public class LeaveService {
         this.userMessageRepository = userMessageRepository;
         this.balanceService = balanceService;
         this.auditLogService = auditLogService;
+        this.conflictGuard = conflictGuard;
+        this.holidayService = holidayService;
     }
 
     // ==================== 权限校验 ====================
@@ -277,6 +284,12 @@ public class LeaveService {
             r.setCreatedBy(SecurityUtil.getUserId());
             pending.add(r);
         }
+        this.assertRestDayConfirmed(pending, Boolean.TRUE.equals(req.getAllowRestDay()));
+        LeaveService.assertBatchNoOverlap(pending);
+        for (LeaveUsageRecord leaveUsageRecord : pending) {
+            this.conflictGuard.assertIntervalFree(leaveUsageRecord.getUserId(), leaveUsageRecord.getDate(),
+                    leaveUsageRecord.getStartTime(), leaveUsageRecord.getEndTime(), null, null);
+        }
 
         if (!allowOverdraft) {
             for (Map.Entry<Long, BigDecimal> e : need.entrySet()) {
@@ -313,6 +326,59 @@ public class LeaveService {
     }
 
     /**
+     * 批量新增前校验：同一用户同一天内不得存在时间重叠的记录。
+     *
+     * @param pending 待写入的调休使用记录列表
+     * @throws BizException 存在同一天时间重叠的记录时抛出
+     */
+    private static void assertBatchNoOverlap(List<LeaveUsageRecord> pending) {
+        for (int i = 0; i < pending.size(); ++i) {
+            LeaveUsageRecord a = pending.get(i);
+            for (int j = i + 1; j < pending.size(); ++j) {
+                LeaveUsageRecord b = pending.get(j);
+                if (!a.getUserId().equals(b.getUserId()) || !a.getDate().equals(b.getDate())
+                        || !RecordConflictGuard.overlaps(a.getStartTime(), a.getEndTime(), b.getStartTime(), b.getEndTime())) {
+                    continue;
+                }
+                throw new BizException("本次提交中存在同一天时间重叠的记录：" + String.valueOf(a.getDate()) + " "
+                        + String.valueOf(a.getStartTime()) + "–" + String.valueOf(a.getEndTime()) + " 与 "
+                        + String.valueOf(b.getStartTime()) + "–" + String.valueOf(b.getEndTime()) + "，请调整后重试");
+            }
+        }
+    }
+
+    /**
+     * 批量新增前校验：若在休息日登记调休，需经前端二次确认（allowRestDay=true）。
+     *
+     * @param pending       待写入的调休使用记录列表
+     * @param allowRestDay  前端是否已确认允许在休息日登记
+     * @throws BizException 存在未确认的休息日登记时抛出
+     */
+    private void assertRestDayConfirmed(List<LeaveUsageRecord> pending, boolean allowRestDay) {
+        if (allowRestDay) {
+            return;
+        }
+        List<String> restDates = new ArrayList<>();
+        for (LeaveUsageRecord r : pending) {
+            if (r.getDate() == null || !this.holidayService.isRestDay(r.getDate())) {
+                continue;
+            }
+            String label = String.valueOf(r.getDate())
+                    + (this.holidayService.holidayNameOf(r.getDate()) != null
+                    ? "（" + this.holidayService.holidayNameOf(r.getDate()) + "）" : "");
+            if (restDates.contains(label)) {
+                continue;
+            }
+            restDates.add(label);
+        }
+        if (restDates.isEmpty()) {
+            return;
+        }
+        throw new BizException("所选日期属于休息日：" + String.join("、", restDates)
+                + "。休息日本不用上班，在此登记调休会直接扣减余额，是否继续？");
+    }
+
+    /**
      * 单条录入（Excel 导入时逐行复用）。
      *
      * @param item           单条录入内容
@@ -323,7 +389,9 @@ public class LeaveService {
     @Transactional
     public LeaveDto.LeaveUsageResponse createOne(LeaveDto.LeaveUsageItem item, boolean allowOverdraft) {
         User u = requireUser(item.getUserId());
+        LocalDate date = requireDate(item.getDate(), 0);
         BigDecimal hours = computeHours(item.getStartTime(), item.getEndTime());
+        this.conflictGuard.assertIntervalFree(u.getId(), date, item.getStartTime(), item.getEndTime(), null, null);
         if (!allowOverdraft) {
             BigDecimal bal = balanceService.currentBalance(u.getId());
             if (bal.subtract(hours).compareTo(BigDecimal.ZERO) < 0) {
@@ -333,7 +401,7 @@ public class LeaveService {
         }
         LeaveUsageRecord r = new LeaveUsageRecord();
         r.setUserId(u.getId());
-        r.setDate(requireDate(item.getDate(), 0));
+        r.setDate(date);
         r.setStartTime(item.getStartTime());
         r.setEndTime(item.getEndTime());
         r.setHours(hours);
@@ -385,6 +453,8 @@ public class LeaveService {
         LocalTime newStart = req.getStartTime() != null ? req.getStartTime() : r.getStartTime();
         LocalTime newEnd = req.getEndTime() != null ? req.getEndTime() : r.getEndTime();
         BigDecimal newHours = computeHours(newStart, newEnd);
+
+        this.conflictGuard.assertIntervalFree(newUserId, newDate, newStart, newEnd, null, id);
 
         String before = describe(r);
 

@@ -9,6 +9,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 
 /**
  * 加班转调休录入记录。
@@ -26,7 +27,9 @@ import java.time.LocalTime;
 @NoArgsConstructor
 @Entity
 @Comment("加班转调休录入记录表")
-@Table(name = "overtime_records")
+@Table(name = "overtime_records", uniqueConstraints = {
+        @UniqueConstraint(name = "uk_ot_active", columnNames = {"active_key"})
+})
 public class OvertimeRecord {
 
     public static final String STATUS_CONFIRMED = "CONFIRMED";
@@ -112,6 +115,11 @@ public class OvertimeRecord {
     @Column(nullable = false, length = 20)
     private String status = STATUS_CONFIRMED;
 
+    /** 判重唯一键：有效记录=userId|date|recordMode|startTime|endTime；作废为 NULL */
+    @Comment("判重唯一键：有效记录=userId|date|recordMode|startTime|endTime；作废为 NULL")
+    @Column(name = "active_key", length = 120)
+    private String activeKey;
+
     @Comment("创建人 ID")
     @Column(name = "created_by")
     private Long createdBy;
@@ -132,11 +140,31 @@ public class OvertimeRecord {
     void prePersist() {
         if (createdAt == null) createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
+        this.refreshActiveKey();
     }
 
     /** 更新前回调：刷新更新时间，编辑加班记录时用于留痕。 */
     @PreUpdate
     void preUpdate() {
         updatedAt = LocalDateTime.now();
+        this.refreshActiveKey();
+    }
+
+    /**
+     * 持久化前计算判重唯一键：作废或关键字段缺失时置 NULL，
+     * 否则拼接 userId|date|recordMode|startTime|endTime。
+     */
+    private void refreshActiveKey() {
+        if (STATUS_VOID.equals(this.status) || this.userId == null || this.date == null || this.recordMode == null) {
+            this.activeKey = null;
+            return;
+        }
+        this.activeKey = this.userId + "|" + String.valueOf(this.date) + "|" + this.recordMode
+                + "|" + OvertimeRecord.timeKey(this.startTime) + "|" + OvertimeRecord.timeKey(this.endTime);
+    }
+
+    /** 时间转 HH:mm；空时间返回空串，参与判重键拼接。 */
+    private static String timeKey(LocalTime time) {
+        return time == null ? "" : time.format(DateTimeFormatter.ofPattern("HH:mm"));
     }
 }

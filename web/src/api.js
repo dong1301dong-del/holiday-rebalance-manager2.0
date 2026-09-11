@@ -154,6 +154,15 @@ export const authApi = {
   /** 当前登录者信息：GET /api/auth/me；返回 data 同 login 的 user/menus/permissions，用于刷新动态菜单与权限 */
   me: () => api.get('/api/auth/me'),
   /**
+   * 退出当前设备登录：POST /api/auth/logout
+   * 仅把「本机令牌」加入黑名单使其立即失效（其它设备上的令牌不受影响），需携带 Authorization。
+   * 注意：调用方（MainLayout.vue 的 doLogout）必须在清空本地 token 之前发起本请求，否则拿不到 Authorization 头。
+   * 后端 401/失败都不应阻断本地登出——本地清理必须成功，请求结果仅作 best-effort。
+   * @returns data: null
+   * @permission 匿名不可访问（需 Bearer token）
+   */
+  logout: () => api.post('/api/auth/logout'),
+  /**
    * 修改本人密码：POST /api/auth/change-password
    * @returns data: null；成功后后端 bump tokenVersion，旧 token 立即失效，前端需重新登录
    */
@@ -226,7 +235,7 @@ export const resourceApi = {
 // ============ 加班转调休录入管理 ============
 /**
  * 加班转调休录入（OvertimeController）
- * 使用方：Overtime.vue（加班录入记录主页面）、Calendar.vue（月度日历）
+ * 使用方：Overtime.vue（加班录入记录主页面）、Holiday.vue（月度日历）
  * @permission 前端权限码 overtime:view（菜单）/ overtime:add / overtime:edit / overtime:delete / overtime:import / overtime:export
  */
 export const overtimeApi = {
@@ -272,7 +281,7 @@ export const overtimeApi = {
 // ============ 调休使用记录 ============
 /**
  * 调休使用记录（LeaveController）
- * 使用方：Leave.vue（调休使用记录主页面）、Calendar.vue（月度日历）、MainLayout.vue（预警消息）
+ * 使用方：Leave.vue（调休使用记录主页面）、Holiday.vue（月度日历）、MainLayout.vue（预警消息）
  * @permission 前端权限码 leave:view（菜单）/ leave:add / leave:edit / leave:void / leave:import / leave:export
  */
 export const leaveApi = {
@@ -287,6 +296,8 @@ export const leaveApi = {
    * 批量录入：POST /api/leave/batch
    * @param {Array<{userId:number, date:string, startTime:string, endTime:string, remark?:string}>} records
    * @param {boolean} [allowOverdraft=false] 余额不足时是否强制录入（由 Leave.vue 直接用 api.post 透传，见该文件注释）
+   * @param {boolean} [allowRestDay=false] 所选日期属于休息日时是否放行；后端会提示「所选日期属于休息日…是否继续」，
+   *        前端二次确认后带 true 重提即可（由 Leave.vue 直接用 api.post 透传，见该文件注释）
    * @returns data: { overdraftNames: string[] }，非空表示产生了透支并已生成预警消息
    */
   createBatch: (records) => api.post('/api/leave/batch', { records }),
@@ -329,7 +340,7 @@ export const leaveApi = {
 export const holidayApi = {
   /**
    * 年度概览：GET /api/holidays/year?year=YYYY
-   * @returns data: 12 个月份卡片 [{ month:'YYYY-MM', label, legalCount, workdayCount, restCount, manualCount }]
+   * @returns data: 12 个月份卡片 [{ month:'YYYY-MM', label, workdayCount, restCount, manualCount }]
    */
   year: (year) => api.get('/api/holidays/year', { year }),
   /**
@@ -341,7 +352,7 @@ export const holidayApi = {
   /**
    * 保存某月变更（仅提交被修改的日期）：POST /api/holidays/month
    * @param {string} month 'YYYY-MM'
-   * @param {Array<{date:string, type:'LEGAL'|'WORKDAY'|'RESTDAY'}>} changes
+   * @param {Array<{date:string, type:'WORKDAY'|'RESTDAY'}>} changes
    * @returns data: { saved: number, warnings: string[] }；warnings 为高风险变更提示
    */
   saveMonth: (month, changes) => api.post('/api/holidays/month', { month, changes }),
@@ -355,7 +366,7 @@ export const holidayApi = {
   refresh: (scope, value, force) => api.post('/api/holidays/refresh', { scope, value, force }),
   /**
    * 根据日期解析类型与系数：GET /api/holidays/resolve?date=YYYY-MM-DD
-   * @returns data: { type, dayType, ratio, name, holidayName }；系数固定 法定工作日/补班日 0.5，休息日/法定节假日 1
+   * @returns data: { type, dayType, ratio, name, holidayName }；系数固定 法定工作日/补班日 0.5，法定休息日（含法定节假日）1
    */
   resolve: (date) => api.get('/api/holidays/resolve', { date }),
   /** 节假日原始条目列表：GET /api/holidays */

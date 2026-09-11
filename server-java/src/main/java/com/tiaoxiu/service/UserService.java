@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -78,7 +79,26 @@ public class UserService {
      * @return 用户响应列表
      */
     public List<UserDto.UserResponse> listResponses() {
-        return list().stream().map(this::toResponse).collect(Collectors.toList());
+        return list().stream().filter(u -> !Boolean.TRUE.equals(u.getBuiltin())).map(this::toResponse).collect(Collectors.toList());
+    }
+
+    /** 判断用户是否为系统内置账号（内置管理员受自我保护约束）。 */
+    private boolean isBuiltin(User u) {
+        return u != null && Boolean.TRUE.equals(u.getBuiltin());
+    }
+
+    /**
+     * 禁止管理员对自己执行敏感操作（冻结/删除等），避免把自己锁在系统之外。
+     *
+     * @param targetId 目标用户 ID
+     * @param action   操作描述，用于异常提示
+     * @throws BizException 操作人是目标本人时抛出
+     */
+    private void requireNotSelf(Long targetId, String action) {
+        Long me = SecurityUtil.getUserId();
+        if (me != null && me.equals(targetId)) {
+            throw new BizException("不能" + action + "自己，请由其他管理员操作");
+        }
     }
 
     /**
@@ -129,7 +149,13 @@ public class UserService {
      */
     @Transactional
     public User create(UserDto.CreateRequest req, Long operatorId) {
-        if (userRepository.existsByUsername(req.getUsername())) throw new BizException("用户名已存在");
+        User existing = userRepository.findByUsername(req.getUsername()).orElse(null);
+        if (existing != null) {
+            if (isBuiltin(existing)) {
+                throw new BizException("该用户名为系统内置账号保留，不可重复创建");
+            }
+            throw new BizException("用户名已存在");
+        }
         if (StringUtils.hasText(req.getName()) && existsName(req.getName(), null)) {
             throw new BizException("姓名已存在：" + req.getName());
         }
@@ -164,6 +190,17 @@ public class UserService {
     @Transactional
     public User update(Long id, UserDto.UpdateRequest req) {
         User u = get(id);
+        if (isBuiltin(u)) {
+            if (StringUtils.hasText(req.getUsername()) && !req.getUsername().equals(u.getUsername())) {
+                throw new BizException("内置管理员的登录账号不可修改");
+            }
+            if (StringUtils.hasText(req.getStatus()) && !User.STATUS_ACTIVE.equals(req.getStatus())) {
+                throw new BizException("内置管理员不可被冻结或删除");
+            }
+            if (!(req.getRoleCodes() == null || req.getRoleCodes().size() == 1 && Role.CODE_ADMIN.equals(req.getRoleCodes().get(0)))) {
+                throw new BizException("内置管理员的角色不可修改");
+            }
+        }
         String before = describe(u, getRoleCodes(id));
         if (StringUtils.hasText(req.getUsername())) {
             if (!req.getUsername().equals(u.getUsername()) && userRepository.existsByUsername(req.getUsername())) {
@@ -223,10 +260,17 @@ public class UserService {
      */
     @Transactional
     public void assignRoles(Long userId, List<String> roleCodes) {
-        if (!userRepository.existsById(userId)) throw new BizException("成员不存在");
+        User target = userRepository.findById(userId).orElseThrow(() -> new BizException("成员不存在"));
+        if (isBuiltin(target)) {
+            if (roleCodes == null || roleCodes.size() != 1 || !Role.CODE_ADMIN.equals(roleCodes.get(0))) {
+                throw new BizException("内置管理员的角色不可修改");
+            }
+            return;
+        }
         // 管理员唯一性约束：系统有且只能有一个 admin 账号，且其他账号不能变更为 admin 角色
+        List<String> currentCodes = getRoleCodes(userId);
         boolean wantsAdmin = roleCodes != null && roleCodes.contains(Role.CODE_ADMIN);
-        boolean isCurrentlyAdmin = getRoleCodes(userId).contains(Role.CODE_ADMIN);
+        boolean isCurrentlyAdmin = currentCodes.contains(Role.CODE_ADMIN);
         long adminCount = countAdmins();
         if (wantsAdmin && !isCurrentlyAdmin && adminCount >= 1) {
             throw new BizException("系统已存在管理员账号，不能再创建第二个管理员");
@@ -246,6 +290,10 @@ public class UserService {
                 list.add(ur);
             }
             userRoleRepository.saveAll(list);
+        }
+        if (!new HashSet<>(currentCodes).equals(new HashSet<>(roleCodes == null ? List.of() : roleCodes))) {
+            target.setTokenVersion(target.getTokenVersion() + 1L);
+            userRepository.save(target);
         }
     }
 
@@ -274,6 +322,9 @@ public class UserService {
     @Transactional
     public void resetPassword(Long userId, String newPassword) {
         User u = get(userId);
+        if (isBuiltin(u)) {
+            throw new BizException("内置管理员的密码不可重置。如需变更，请由运维设置环境变量 ADMIN_DEFAULT_PASSWORD 后重启服务");
+        }
         if (!PasswordUtil.isStrong(newPassword)) throw new BizException("密码强度不足：" + PasswordUtil.strongRuleTip());
         u.setPassword(PasswordUtil.encode(newPassword));
         u.setMustChangePwd(true);
@@ -292,6 +343,10 @@ public class UserService {
     @Transactional
     public void setStatus(Long userId, String status) {
         User u = get(userId);
+        requireNotSelf(userId, "冻结或启用");
+        if (isBuiltin(u)) {
+            throw new BizException("内置管理员不可被冻结");
+        }
         if (!User.STATUS_ACTIVE.equals(status) && !User.STATUS_FROZEN.equals(status))
             throw new BizException("非法状态");
         u.setStatus(status);
@@ -310,6 +365,10 @@ public class UserService {
     @Transactional
     public void delete(Long userId) {
         User u = get(userId);
+        requireNotSelf(userId, "删除");
+        if (isBuiltin(u)) {
+            throw new BizException("内置管理员不可删除");
+        }
         u.setStatus(User.STATUS_DELETED);
         u.setTokenVersion(u.getTokenVersion() + 1);
         userRepository.save(u);

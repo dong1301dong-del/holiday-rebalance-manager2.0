@@ -202,9 +202,12 @@ function rowHours(row) {
 /**
  * 提交录入：POST /api/leave/batch
  * @param {boolean} [allowOverdraft=false] 余额不足时是否强制录入
- * 余额不足的处理链路：首次不带该参数 → 后端报「余额不足」→ 弹二次确认 → 带 true 重提（递归一次）
+ * @param {boolean} [allowRestDay=false] 所选日期属于休息日时是否放行（二次确认后带 true 重提）
+ * 二次确认链路（互不冲突，可先后触发，且每次重提都会带上已确认的标志位避免重复弹窗/死循环）：
+ *  - 余额不足：首次不带 allowOverdraft → 后端报「余额不足」→ 弹确认 → 带 true 重提
+ *  - 休息日：首次不带 allowRestDay → 后端报「所选日期属于休息日…」→ 弹确认 → 带 true 重提
  */
-async function submitEntry(allowOverdraft = false) {
+async function submitEntry(allowOverdraft = false, allowRestDay = false) {
   const records = [];
   for (let i = 0; i < entryRows.value.length; i++) {
     const r = entryRows.value[i];
@@ -223,8 +226,8 @@ async function submitEntry(allowOverdraft = false) {
   }
   saving.value = true;
   try {
-    // api.js 的 leaveApi.createBatch 不支持 allowOverdraft 参数，此处直接调用
-    const res = await api.post('/api/leave/batch', { records, allowOverdraft });
+    // leaveApi.createBatch 不支持 allowOverdraft / allowRestDay 透传，此处直接用 api.post 携带两个放行标志位
+    const res = await api.post('/api/leave/batch', { records, allowOverdraft, allowRestDay });
     // overdraftNames 非空说明产生了透支，后端已生成预警消息
     const warned = (res.data?.overdraftNames || []).length > 0;
     ok(warned ? '录入成功，已生成余额预警提醒' : '录入成功');
@@ -232,6 +235,19 @@ async function submitEntry(allowOverdraft = false) {
     load();
   } catch (e) {
     const msg = e.message || '录入失败';
+    // 休息日提醒：所选日期属于休息日时，确认后带 allowRestDay=true 重提（不影响余额不足逻辑）
+    if (!allowRestDay && msg.includes('休息日')) {
+      try {
+        await ElMessageBox.confirm(msg, '休息日提醒', {
+          type: 'warning',
+          confirmButtonText: '确认继续',
+          cancelButtonText: '取消',
+        });
+        // 带上已确认的 allowRestDay，余额不足标志位沿用当前值（避免重复处理）
+        await submitEntry(allowOverdraft, true);
+      } catch { /* 用户取消，不发请求 */ }
+      return;
+    }
     if (!allowOverdraft && msg.includes('余额不足')) {
       try {
         await ElMessageBox.confirm(msg, '余额不足', {
@@ -239,7 +255,8 @@ async function submitEntry(allowOverdraft = false) {
           confirmButtonText: '确认继续',
           cancelButtonText: '取消',
         });
-        await submitEntry(true);
+        // 带上已确认的 allowOverdraft，休息日标志位沿用当前值（避免重复处理）
+        await submitEntry(true, allowRestDay);
       } catch { /* 用户取消 */ }
       return;
     }

@@ -70,6 +70,10 @@ public class User {
     @org.hibernate.annotations.Comment("是否必须修改初始密码")
     private Boolean mustChangePwd = false;
 
+    @Column(nullable = false)
+    @org.hibernate.annotations.Comment("是否系统内置账号（内置管理员不可删除/冻结/改密）")
+    private Boolean builtin = false;
+
     /** 单设备登录：每次登录/重置密码自增，旧 token 因 ver 不匹配而失效 */
     @Column(nullable = false)
     @org.hibernate.annotations.Comment("Token版本号，用于单设备登录控制")

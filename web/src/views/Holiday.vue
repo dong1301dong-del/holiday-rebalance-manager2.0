@@ -5,7 +5,7 @@
  *  - 年度视图：12 张月份卡片，展示每月法定节假日/工作日/休息日天数与人工调整天数。
  *  - 月份弹窗：点卡片打开该月日历，逐日下拉切换类型，切换后先本地暂存（pending），点「保存更改」才提交。
  *  - 刷新：拉取官方节假日数据；若存在人工变更会提示冲突，可强制覆盖。
- * 日期类型直接决定加班折算系数（法定工作日/补班日 0.5，休息日/法定节假日 1），故变更属高风险操作，需二次确认。
+ * 日期类型直接决定加班折算系数（法定工作日/补班日 0.5，法定休息日（含法定节假日）1），故变更属高风险操作，需二次确认。
  */
 import { ref, computed, onMounted, h } from 'vue';
 import { holidayApi } from '../api';
@@ -13,16 +13,14 @@ import { ok, err } from '../toast';
 import { ElMessageBox, ElMessage } from 'element-plus';
 import { Refresh } from '@element-plus/icons-vue';
 
-/** 三种日期类型：中文名 + 颜色（三色两两可辨） */
+/** 两种日期类型：中文名 + 颜色（原 LEGAL 法定节假日已并入 RESTDAY 法定休息日，两者折算系数均为 1） */
 const TYPE_META = {
-  LEGAL: { label: '法定节假日', color: '#f1648f', dot: '#ff6fa5' },
   WORKDAY: { label: '法定工作日', color: '#409eff', dot: '#409eff' },
-  RESTDAY: { label: '休息日', color: '#67c23a', dot: '#67c23a' },
+  RESTDAY: { label: '法定休息日', color: '#67c23a', dot: '#67c23a' },
 };
 const TYPE_OPTIONS = [
-  { value: 'LEGAL', label: '法定节假日', dot: '#ff6fa5' },
   { value: 'WORKDAY', label: '法定工作日', dot: '#409eff' },
-  { value: 'RESTDAY', label: '休息日', dot: '#67c23a' },
+  { value: 'RESTDAY', label: '法定休息日', dot: '#67c23a' },
 ];
 const WEEK_HEADERS = ['一', '二', '三', '四', '五', '六', '日'];
 
@@ -98,31 +96,27 @@ onMounted(loadYear);
 // ---------- 单日类型变更 ----------
 /**
  * 本地兜底的高风险文案（后端返回 warnings 时以后端为准）
- * @param {string} officialType 官方类型
- * @param {string} newType 拟变更成的类型
+ * 与后端一致：该日期是否高风险取决于「是否带有法定节假日名称」，而不再区分 LEGAL / RESTDAY。
+ * @param {string} holidayName 该日期的法定节假日名称；后端已把原 LEGAL 归一为 RESTDAY，故此处只认 name
  */
-function localWarning(officialType, newType) {
-  if (officialType === 'LEGAL') {
-    return '该日期为国家法定节假日，强制变更可能导致历史数据变动风险，是否继续？';
-  }
-  return `该日期原为${(TYPE_META[officialType] || {}).label || '法定工作日'}，变更为法定节假日可能导致历史数据变动风险，是否继续？`;
+function localWarning(holidayName) {
+  return `该日期为国家法定节假日「${holidayName}」，变更可能影响历史数据与后续加班折算口径，是否继续？`;
 }
 
 /**
  * 下拉选择某天的类型：@command 触发
- * 仅当「是否法定节假日」的归属发生翻转时才算高风险，需要二次确认；
+ * 仅当该日期带有法定节假日名称（day.name 非空）时算高风险，需要二次确认；
  * 确认后只写入 pending，等点「保存更改」才真正提交。
  * @param {object} day 日期格子
- * @param {'LEGAL'|'WORKDAY'|'RESTDAY'} type 目标类型
+ * @param {'WORKDAY'|'RESTDAY'} type 目标类型
  */
 async function onPick(day, type) {
   if (!day || !day.inMonth) return; // 补位的非本月日期不可编辑
   if (effType(day) === type) return; // 类型未变
-  const official = day.officialType || day.type;
-  // 一端是 LEGAL、另一端不是，说明会改变该日是否算法定节假日，属高风险
-  const risk = (official === 'LEGAL') !== (type === 'LEGAL');
+  // 高风险判定改为与后端一致：该日期是否带有法定节假日名称（name 非空）
+  const risk = !!day.name;
   if (risk) {
-    const msg = localWarning(official, type);
+    const msg = localWarning(day.name);
     // 用 h() 拼 VNode：确认框需要两行不同颜色的文案，纯字符串无法着色
     const vnode = h('div', null, [
       h('div', null, `确认将 ${day.date} 从「${labelOf(day)}」变更为「${TYPE_META[type].label}」？`),
@@ -227,7 +221,7 @@ async function onRefresh() {
         <div class="hd-title">节假日日历</div>
         <div class="hd-sub">
           维护法定节假日、调休补班日与休息日；判定优先级：人工维护 &gt; 系统官方规则 &gt; 周末默认休息日。
-          日期类型决定加班折算系数（法定工作日 0.5，休息日 / 法定节假日 1）
+          日期类型决定加班折算系数（法定工作日 0.5，法定休息日（含法定节假日）1）
         </div>
       </div>
       <div class="hd-actions">
@@ -256,18 +250,13 @@ async function onRefresh() {
         <div class="hd-card-title">{{ m.label }}</div>
         <div class="hd-stats">
           <div class="hd-stat">
-            <span class="hd-dot" style="background: #ff6fa5"></span>
-            <span class="hd-stat-name">法定节假日</span>
-            <b class="hd-stat-num" style="color: #f1648f">{{ m.legalCount }}</b>
-          </div>
-          <div class="hd-stat">
             <span class="hd-dot" style="background: #409eff"></span>
             <span class="hd-stat-name">法定工作日</span>
             <b class="hd-stat-num" style="color: #409eff">{{ m.workdayCount }}</b>
           </div>
           <div class="hd-stat">
             <span class="hd-dot" style="background: #67c23a"></span>
-            <span class="hd-stat-name">休息日</span>
+            <span class="hd-stat-name">法定休息日</span>
             <b class="hd-stat-num" style="color: #67c23a">{{ m.restCount }}</b>
           </div>
         </div>
@@ -390,9 +379,9 @@ async function onRefresh() {
   margin-bottom: 10px;
 }
 .hd-stats {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
 }
 .hd-stat {
   display: flex;

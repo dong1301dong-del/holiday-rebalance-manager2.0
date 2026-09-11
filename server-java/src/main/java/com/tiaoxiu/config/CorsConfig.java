@@ -1,6 +1,7 @@
 package com.tiaoxiu.config;
 
 import com.tiaoxiu.interceptor.WriteGuardInterceptor;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
@@ -19,17 +20,22 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @Configuration
 public class CorsConfig implements WebMvcConfigurer {
 
-    /** 允许跨域访问的来源模式列表，逗号分隔，默认 {@code *}（开发环境全放行） */
-    @Value("${app.cors-allowed-origins:*}")
+    /** 允许跨域访问的来源模式列表，逗号分隔，默认仅放行本机 8601 前端 */
+    @Value("${app.cors-allowed-origins:http://localhost:8601,http://127.0.0.1:8601}")
     private String allowedOrigins;
 
     /** 写操作串行化拦截器，由 Spring 注入 */
     private final WriteGuardInterceptor writeGuardInterceptor;
 
-    public CorsConfig(@Value("${app.cors-allowed-origins:*}") String allowedOrigins,
+    public CorsConfig(@Value("${app.cors-allowed-origins:http://localhost:8601,http://127.0.0.1:8601}") String allowedOrigins,
                       WriteGuardInterceptor writeGuardInterceptor) {
         this.allowedOrigins = allowedOrigins;
         this.writeGuardInterceptor = writeGuardInterceptor;
+        if (allowedOrigins != null && allowedOrigins.contains("*")) {
+            LoggerFactory.getLogger(CorsConfig.class).warn(
+                    "CORS 配置包含通配符 *（当前值：{}）。跨域允许来源越宽，CSRF 风险越高，生产环境请改为具体域名。",
+                    allowedOrigins);
+        }
     }
 
     /**

@@ -16,8 +16,6 @@ public class HolidayDto {
         private String month;
         /** 如 2026年01月 */
         private String label;
-        /** 法定节假日天数 */
-        private int legalCount;
         /** 法定工作日天数 */
         private int workdayCount;
         /** 休息日天数 */

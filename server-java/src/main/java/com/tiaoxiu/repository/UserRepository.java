@@ -51,4 +51,11 @@ public interface UserRepository extends JpaRepository<User, Long> {
      * @return 符合条件的用户列表
      */
     List<User> findByDepartmentAndStatus(String department, String status);
+
+    /**
+     * 查询系统内置账号（builtin 标记为 true）。
+     *
+     * @return 命中则返回用户；不存在返回 {@link Optional#empty()}
+     */
+    Optional<User> findByBuiltinTrue();
 }

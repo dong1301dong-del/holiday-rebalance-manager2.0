@@ -4,6 +4,7 @@ import com.tiaoxiu.common.BizException;
 import com.tiaoxiu.common.PageResult;
 import com.tiaoxiu.common.Result;
 import com.tiaoxiu.common.SecurityUtil;
+import com.tiaoxiu.common.UploadValidator;
 import com.tiaoxiu.dto.OvertimeDto;
 import com.tiaoxiu.entity.OvertimeRecord;
 import com.tiaoxiu.service.OvertimeService;
@@ -46,14 +47,17 @@ public class OvertimeController {
     private static final String TEMPLATE_FILENAME = "加班转调休录入导入模板.xlsx";
 
     private final OvertimeService overtimeService;
+    private final UploadValidator uploadValidator;
 
     /**
      * 构造器注入。
      *
      * @param overtimeService 加班服务
+     * @param uploadValidator 上传文件校验（空文件/大小/类型/行数）
      */
-    public OvertimeController(OvertimeService overtimeService) {
+    public OvertimeController(OvertimeService overtimeService, UploadValidator uploadValidator) {
         this.overtimeService = overtimeService;
+        this.uploadValidator = uploadValidator;
     }
 
     /**
@@ -198,7 +202,7 @@ public class OvertimeController {
     @PostMapping("/import")
     public Result<OvertimeDto.ImportResult> importFile(@RequestParam("file") MultipartFile file) {
         requireManage();
-        if (file == null || file.isEmpty()) throw new BizException("请选择要导入的文件");
+        this.uploadValidator.validate(file);
         return Result.ok(overtimeService.importExcel(file, SecurityUtil.getUserId()));
     }
 

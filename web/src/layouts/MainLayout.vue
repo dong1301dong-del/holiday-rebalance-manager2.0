@@ -7,7 +7,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { auth, logout } from '../store';
-import { reportApi, leaveApi } from '../api';
+import { reportApi, leaveApi, authApi } from '../api';
 import { ok } from '../toast';
 
 const route = useRoute();
@@ -62,8 +62,16 @@ async function loadMessages() {
   }
 }
 
-/** 退出登录：清空 store 里的登录态与本地 token 后回登录页 */
-function doLogout() {
+/**
+ * 退出登录：先 best-effort 让后端作废本机令牌（不影响其它设备），再清空本地登录态并回登录页。
+ * 关键顺序：必须在「本地清理 token」之前发起 logout 请求，否则请求拿不到 Authorization 头。
+ * 后端调用失败也不阻断本地登出——本地清理必须成功，用户一定能退出。
+ */
+async function doLogout() {
+  try {
+    // 仅作废当前设备的令牌；失败（如网络/已过期）忽略，本地登出照常进行
+    await authApi.logout();
+  } catch { /* 不阻断本地登出 */ }
   logout();
   ok('已退出登录');
   router.push('/login');

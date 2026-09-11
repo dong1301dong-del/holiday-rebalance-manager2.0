@@ -2,6 +2,7 @@ package com.tiaoxiu.service;
 
 import com.tiaoxiu.common.BizException;
 import com.tiaoxiu.common.PageResult;
+import com.tiaoxiu.common.UploadValidator;
 import com.tiaoxiu.dto.HolidayDto;
 import com.tiaoxiu.dto.OvertimeDto;
 import com.tiaoxiu.entity.AuditLog;
@@ -91,6 +92,8 @@ public class OvertimeService {
     private final HolidayService holidayService;
     private final BalanceService balanceService;
     private final AuditLogService auditLogService;
+    private final RecordConflictGuard conflictGuard;
+    private final UploadValidator uploadValidator;
 
     /**
      * 构造器注入。
@@ -102,11 +105,14 @@ public class OvertimeService {
      * @param holidayService     节假日服务（判定日类型与折算系数）
      * @param balanceService     余额引擎（入账 / 冲减调休余额）
      * @param auditLogService    审计日志服务
+     * @param conflictGuard      记录时间区间冲突守卫
+     * @param uploadValidator    上传行数上限校验
      */
     public OvertimeService(OvertimeRepository overtimeRepository, UserRepository userRepository,
                            UserRoleRepository userRoleRepository, RoleRepository roleRepository,
                            HolidayService holidayService, BalanceService balanceService,
-                           AuditLogService auditLogService) {
+                           AuditLogService auditLogService, RecordConflictGuard conflictGuard,
+                           UploadValidator uploadValidator) {
         this.overtimeRepository = overtimeRepository;
         this.userRepository = userRepository;
         this.userRoleRepository = userRoleRepository;
@@ -114,6 +120,8 @@ public class OvertimeService {
         this.holidayService = holidayService;
         this.balanceService = balanceService;
         this.auditLogService = auditLogService;
+        this.conflictGuard = conflictGuard;
+        this.uploadValidator = uploadValidator;
     }
 
     // ==================== 权限校验 ====================
@@ -285,7 +293,7 @@ public class OvertimeService {
         HolidayDto.ResolveResult resolved = holidayService.resolve(date);
         String dayType = StringUtils.hasText(resolved.getDayType()) ? resolved.getDayType() : resolved.getType();
         if (!StringUtils.hasText(dayType)) dayType = OvertimeRecord.DAY_WORKDAY;
-        BigDecimal ratio = resolved.getRatio() != null ? resolved.getRatio() : ratioOf(dayType);
+        BigDecimal ratio = resolved.getRatio() != null ? resolved.getRatio() : this.holidayService.ratioForDayType(dayType);
         String holidayName = StringUtils.hasText(resolved.getHolidayName())
                 ? resolved.getHolidayName() : resolved.getName();
         return new OvertimeDto.DayResolve(date, dayType, dayTypeLabel(dayType), ratio, holidayName);
@@ -503,12 +511,10 @@ public class OvertimeService {
             r.setHolidayName(day.getHolidayName());
             balanceDetail = "加班入账 " + req.getDate() + " " + hours + "h×" + day.getRatio() + "=" + converted + "h";
         }
-        // 加班转休模式：同一人同一天相同起始时间禁止重复录入
-        if (!isManual(mode)) {
-            List<OvertimeRecord> dup = overtimeRepository.findOverlappingStart(user.getId(), req.getDate(), req.getStartTime());
-            if (!dup.isEmpty()) {
-                throw new BizException("该员工在 " + req.getDate() + " 已存在起始时间 " + req.getStartTime() + " 的加班记录，不能重复录入");
-            }
+        if (isManual(mode)) {
+            this.conflictGuard.assertManualOnce(user.getId(), req.getDate(), null);
+        } else {
+            this.conflictGuard.assertIntervalFree(user.getId(), req.getDate(), req.getStartTime(), req.getEndTime(), null, null);
         }
         OvertimeRecord saved = overtimeRepository.save(r);
 
@@ -575,13 +581,10 @@ public class OvertimeService {
         r.setConvertedHours(converted);
         r.setHolidayName(isManual(mode) ? null : day.getHolidayName());
         r.setRemark(req.getRemark());
-        // 加班转休模式：同一人同一天相同起始时间禁止重复录入（排除正在编辑的自身记录）
-        if (!isManual(mode)) {
-            List<OvertimeRecord> dup = overtimeRepository.findOverlappingStart(user.getId(), req.getDate(), req.getStartTime());
-            boolean selfOnly = dup.stream().allMatch(d -> d.getId().equals(id));
-            if (!dup.isEmpty() && !selfOnly) {
-                throw new BizException("该员工在 " + req.getDate() + " 已存在起始时间 " + req.getStartTime() + " 的加班记录，不能重复录入");
-            }
+        if (isManual(mode)) {
+            this.conflictGuard.assertManualOnce(user.getId(), req.getDate(), id);
+        } else {
+            this.conflictGuard.assertIntervalFree(user.getId(), req.getDate(), req.getStartTime(), req.getEndTime(), id, null);
         }
         OvertimeRecord saved = overtimeRepository.save(r);
 
@@ -746,6 +749,7 @@ public class OvertimeService {
         } catch (Exception e) {
             throw new BizException("Excel 解析失败：" + e.getMessage());
         }
+        this.uploadValidator.requireRowCountWithinLimit(rows.size());
 
         for (int i = 0; i < rows.size(); i++) {
             int rowNo = i + 1;

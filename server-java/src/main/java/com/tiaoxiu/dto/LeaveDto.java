@@ -33,6 +33,8 @@ public class LeaveDto {
         private List<LeaveUsageItem> records = new ArrayList<>();
         /** 前端在余额不足弹窗中确认后置 true，允许透支扣减 */
         private Boolean allowOverdraft = false;
+        /** 前端在「所选日期属于休息日」弹窗中确认后置 true，允许在休息日登记调休 */
+        private Boolean allowRestDay = false;
     }
 
     /** 编辑请求（按差额调整余额） */

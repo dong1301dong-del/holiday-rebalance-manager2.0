@@ -3,6 +3,7 @@ package com.tiaoxiu.filter;
 import com.tiaoxiu.common.SecurityUtil;
 import com.tiaoxiu.entity.User;
 import com.tiaoxiu.repository.UserRepository;
+import com.tiaoxiu.service.TokenBlacklistService;
 import com.tiaoxiu.util.JwtUtil;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
@@ -38,22 +39,33 @@ public class JwtFilter extends OncePerRequestFilter {
 
     private final JwtUtil jwtUtil;
     private final UserRepository userRepository;
+    private final TokenBlacklistService tokenBlacklistService;
 
     /**
      * 构造器注入。
      *
-     * @param jwtUtil        JWT 解析工具
-     * @param userRepository 用户仓储，用于校验账号状态与令牌版本号
+     * @param jwtUtil               JWT 解析工具
+     * @param userRepository        用户仓储，用于校验账号状态与令牌版本号
+     * @param tokenBlacklistService 令牌黑名单服务，用于登出后失效校验
      */
-    public JwtFilter(JwtUtil jwtUtil, UserRepository userRepository) {
+    public JwtFilter(JwtUtil jwtUtil, UserRepository userRepository, TokenBlacklistService tokenBlacklistService) {
         this.jwtUtil = jwtUtil;
         this.userRepository = userRepository;
+        this.tokenBlacklistService = tokenBlacklistService;
     }
 
     /** 无需登录即可访问的路径前缀白名单：登录接口、健康检查、错误转发 */
     private static final List<String> WHITE_LIST = List.of(
             "/api/auth/login", "/api/auth/health", "/api/health", "/error"
     );
+
+    /** 强制改密期间仍允许访问的路径，避免用户被锁死在「必须改密」页面之外 */
+    private static final List<String> MUST_CHANGE_PWD_ALLOWED = List.of(
+            "/api/auth/change-password", "/api/auth/me", "/api/auth/logout"
+    );
+
+    /** 接口文档（Swagger）路径前缀，仅 ADMIN 可访问 */
+    private static final List<String> SWAGGER_PREFIXES = List.of("/swagger-ui", "/v3/api-docs");
 
     /**
      * 请求过滤主逻辑。
@@ -77,31 +89,48 @@ public class JwtFilter extends OncePerRequestFilter {
 
         String header = request.getHeader("Authorization");
         if (header == null || !header.startsWith("Bearer ")) {
-            writeUnauthorized(response, "缺少令牌");
+            writeError(response, HttpStatus.UNAUTHORIZED.value(), "缺少令牌");
             return;
         }
         // "Bearer " 共 7 个字符，截掉前缀才是纯 JWT 串
         String token = header.substring(7);
         try {
             Claims claims = jwtUtil.parse(token);
+            // 登出后令牌进入黑名单，必须立即失效，即使它本身尚未过期
+            if (tokenBlacklistService.isBlacklisted(token)) {
+                writeError(response, HttpStatus.UNAUTHORIZED.value(), "登录状态已失效，请重新登录");
+                return;
+            }
             Long uid = claims.get("uid", Long.class);
             Long ver = claims.get("ver", Long.class);
             User user = userRepository.findById(uid).orElse(null);
             if (user == null) {
-                writeUnauthorized(response, "用户不存在");
+                writeError(response, HttpStatus.UNAUTHORIZED.value(), "用户不存在");
                 return;
             }
             // 令牌本身可能仍然合法，但账号已被冻结/删除，此时必须拒绝访问
             if (!User.STATUS_ACTIVE.equals(user.getStatus())) {
-                writeUnauthorized(response, "账号已被冻结或删除");
+                writeError(response, HttpStatus.UNAUTHORIZED.value(), "账号已被冻结或删除");
                 return;
             }
             if (!user.getTokenVersion().equals(ver)) {
                 // 单设备登录：新设备登录/重置密码会使旧 token 的 ver 失效
-                writeUnauthorized(response, "登录状态已失效，请重新登录");
+                writeError(response, HttpStatus.UNAUTHORIZED.value(), "登录状态已失效，请重新登录");
                 return;
             }
             List<String> roles = claims.get("roles", List.class);
+            // 强制改密：除改密/me/登出等必要接口外，其余一律拦截，避免绕过
+            if (Boolean.TRUE.equals(user.getMustChangePwd())
+                    && MUST_CHANGE_PWD_ALLOWED.stream().noneMatch(path::startsWith)) {
+                writeError(response, HttpStatus.FORBIDDEN.value(), "请先修改初始密码后再继续操作");
+                return;
+            }
+            // 接口文档仅限管理员访问，防止信息泄露
+            if (SWAGGER_PREFIXES.stream().anyMatch(path::startsWith)
+                    && (roles == null || !roles.contains("ADMIN"))) {
+                writeError(response, HttpStatus.FORBIDDEN.value(), "无权限访问接口文档");
+                return;
+            }
             SecurityUtil.set(user.getId(), user.getUsername(), roles, user.getTokenVersion());
             try {
                 chain.doFilter(request, response);
@@ -110,7 +139,7 @@ public class JwtFilter extends OncePerRequestFilter {
                 SecurityUtil.clear();
             }
         } catch (Exception e) {
-            writeUnauthorized(response, "令牌无效或已过期");
+            writeError(response, HttpStatus.UNAUTHORIZED.value(), "令牌无效或已过期");
         }
     }
 
@@ -124,6 +153,8 @@ public class JwtFilter extends OncePerRequestFilter {
      * @return true 表示可匿名访问
      */
     private boolean isPublicResource(String path) {
+        // Swagger 接口文档路径即使以 / 开头也不算公开静态资源，需经过上面的鉴权拦截
+        if (SWAGGER_PREFIXES.stream().anyMatch(path::startsWith)) return false;
         // 前端由 Spring 直接托管时，首页与静态资源需匿名可访问；API 一律需要鉴权
         if (path.startsWith("/api/")) return false;
         if (path.equals("/") || path.equals("/index.html")) return true;
@@ -134,18 +165,19 @@ public class JwtFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 直接写出 401 JSON 响应并中断请求。
+     * 直接写出错误 JSON 响应并中断请求。
      *
      * <p>这里手动拼 JSON 而不是抛异常，是因为过滤器位于进入 Spring MVC 之前，
      * 抛出的异常不会被 {@link com.tiaoxiu.common.GlobalExceptionHandler} 捕获。
      *
      * @param response HTTP 响应
+     * @param status   HTTP 状态码（同时作为返回 JSON 的 code）
      * @param msg      返回给前端的错误描述
      * @throws IOException 写响应体时可能抛出
      */
-    private void writeUnauthorized(HttpServletResponse response, String msg) throws IOException {
-        response.setStatus(HttpStatus.UNAUTHORIZED.value());
+    private void writeError(HttpServletResponse response, int status, String msg) throws IOException {
+        response.setStatus(status);
         response.setContentType("application/json;charset=UTF-8");
-        response.getWriter().write("{\"code\":401,\"message\":\"" + msg + "\"}");
+        response.getWriter().write("{\"code\":" + status + ",\"message\":\"" + msg + "\"}");
     }
 }

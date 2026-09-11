@@ -8,6 +8,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 
 /**
  * 调休使用记录（leave_usage_records）。
@@ -24,6 +25,8 @@ import java.time.LocalTime;
         @Index(name = "idx_lur_user", columnList = "user_id"),
         @Index(name = "idx_lur_date", columnList = "use_date"),
         @Index(name = "idx_lur_status", columnList = "status")
+}, uniqueConstraints = {
+        @UniqueConstraint(name = "uk_lur_active", columnNames = {"active_key"})
 })
 public class LeaveUsageRecord {
 
@@ -73,8 +76,13 @@ public class LeaveUsageRecord {
     private String remark;
 
     @Column(nullable = false, length = 20)
-    @org.hibernate.annotations.Comment("状态：ACTIVE 正常、FROZEN 冻结、DELETED 删除")
+    @org.hibernate.annotations.Comment("状态：NORMAL 正常、VOID 已作废")
     private String status = STATUS_NORMAL;
+
+    /** 判重唯一键：有效记录=userId|date|startTime|endTime；作废为 NULL */
+    @Column(name = "active_key", length = 120)
+    @org.hibernate.annotations.Comment("判重唯一键：有效记录=userId|date|startTime|endTime；作废为 NULL")
+    private String activeKey;
 
     @Column(name = "created_by")
     @org.hibernate.annotations.Comment("创建人ID")
@@ -114,11 +122,30 @@ public class LeaveUsageRecord {
         updatedAt = LocalDateTime.now();
         if (status == null) status = STATUS_NORMAL;
         if (hours == null) hours = BigDecimal.ZERO;
+        this.refreshActiveKey();
     }
 
     /** 更新前回调：刷新更新时间，编辑与作废时用于留痕。 */
     @PreUpdate
     void preUpdate() {
         updatedAt = LocalDateTime.now();
+        this.refreshActiveKey();
+    }
+
+    /**
+     * 持久化前计算判重唯一键：作废或关键字段缺失时置 NULL，否则拼接 userId|date|startTime|endTime。
+     */
+    private void refreshActiveKey() {
+        if (STATUS_VOID.equals(this.status) || this.userId == null || this.date == null) {
+            this.activeKey = null;
+            return;
+        }
+        this.activeKey = this.userId + "|" + String.valueOf(this.date)
+                + "|" + LeaveUsageRecord.timeKey(this.startTime) + "|" + LeaveUsageRecord.timeKey(this.endTime);
+    }
+
+    /** 时间转 HH:mm；空时间返回空串，参与判重键拼接。 */
+    private static String timeKey(LocalTime time) {
+        return time == null ? "" : time.format(DateTimeFormatter.ofPattern("HH:mm"));
     }
 }

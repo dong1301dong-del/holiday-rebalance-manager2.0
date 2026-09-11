@@ -5,6 +5,7 @@ import com.tiaoxiu.dto.HolidayDto;
 import com.tiaoxiu.entity.AuditLog;
 import com.tiaoxiu.entity.Holiday;
 import com.tiaoxiu.repository.HolidayRepository;
+import com.tiaoxiu.service.ConfigService;
 import com.tiaoxiu.util.ChineseHolidayRules;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,16 +40,19 @@ public class HolidayService {
 
     private final HolidayRepository holidayRepository;
     private final AuditLogService auditLogService;
+    private final ConfigService configService;
 
     /**
      * 构造器注入。
      *
      * @param holidayRepository 节假日仓储
      * @param auditLogService   审计日志服务，用于记录日期类型变更与刷新操作
+     * @param configService     系统配置服务，提供可配置的折算比例
      */
-    public HolidayService(HolidayRepository holidayRepository, AuditLogService auditLogService) {
+    public HolidayService(HolidayRepository holidayRepository, AuditLogService auditLogService, ConfigService configService) {
         this.holidayRepository = holidayRepository;
         this.auditLogService = auditLogService;
+        this.configService = configService;
     }
 
     // ============ 年度概览 / 月份网格 ============
@@ -68,14 +72,12 @@ public class HolidayService {
             HolidayDto.MonthOverview o = new HolidayDto.MonthOverview();
             o.setMonth(ym.toString());
             o.setLabel(year + "年" + String.format("%02d", m) + "月");
-            int legal = 0, workday = 0, rest = 0, manual = 0;
+            int workday = 0, rest = 0, manual = 0;
             for (Holiday h : days) {
-                if (Holiday.TYPE_LEGAL.equals(h.getType())) legal++;
-                else if (Holiday.TYPE_RESTDAY.equals(h.getType())) rest++;
+                if (Holiday.isRestLike(h.getType())) rest++;
                 else workday++;
                 if (isManual(h)) manual++;
             }
-            o.setLegalCount(legal);
             o.setWorkdayCount(workday);
             o.setRestCount(rest);
             o.setManualCount(manual);
@@ -118,13 +120,13 @@ public class HolidayService {
             String official;
             boolean manual = false;
             if (h != null) {
-                type = h.getType();
+                type = Holiday.normalizeType(h.getType());
                 name = h.getName();
-                official = h.getOfficialType() != null ? h.getOfficialType() : type;
+                official = h.getOfficialType() != null ? Holiday.normalizeType(h.getOfficialType()) : type;
                 manual = isManual(h);
             } else {
                 ChineseHolidayRules.DayRule rule = ChineseHolidayRules.officialOf(d);
-                type = rule != null ? rule.type() : Holiday.TYPE_WORKDAY;
+                type = rule != null ? Holiday.normalizeType(rule.type()) : Holiday.TYPE_WORKDAY;
                 name = rule != null ? rule.name() : null;
                 official = type;
             }
@@ -180,11 +182,12 @@ public class HolidayService {
             Holiday h = map.get(d);
             if (h == null) continue;
             String newType = normalizeType(item.getType());
-            String official = h.getOfficialType() != null ? h.getOfficialType() : officialTypeOf(d);
-            if (newType.equals(h.getType()) && Boolean.TRUE.equals(h.getAuto())) continue; // 无变化
+            String official = Holiday.normalizeType(h.getOfficialType() != null ? h.getOfficialType() : officialTypeOf(d));
+            if (newType.equals(Holiday.normalizeType(h.getType())) && Boolean.TRUE.equals(h.getAuto())) continue; // 无变化
 
-            String beforeType = h.getType();
-            boolean risk = isHighRisk(official, newType);
+            String beforeType = Holiday.normalizeType(h.getType());
+            String riskName = h.getName();
+            boolean risk = StringUtils.hasText(riskName);
             h.setType(newType);
             h.setOfficialType(official);
             h.setAuto(newType.equals(official));
@@ -194,12 +197,12 @@ public class HolidayService {
 
             if (risk) {
                 hasRisk = true;
-                result.getWarnings().add(warningOf(official, newType));
+                result.getWarnings().add(warningOf(riskName, newType));
             }
             auditLogService.logChange(AuditLog.MODULE_HOLIDAY, ACTION_CHANGE, d.toString(),
                     "将 " + d + " 由「" + ChineseHolidayRules.typeLabel(beforeType)
                             + "」变更为「" + ChineseHolidayRules.typeLabel(newType) + "」"
-                            + (risk ? "（高风险：涉及法定节假日互转）" : ""),
+                            + (risk ? "（高风险：涉及国家法定节假日）" : ""),
                     beforeType, newType, risk ? AuditLog.LEVEL_WARN : AuditLog.LEVEL_INFO);
         }
 
@@ -277,12 +280,30 @@ public class HolidayService {
             if (h == null) {
                 h = new Holiday(d, rule.name(), rule.type(), rule.type(), Boolean.TRUE);
             } else {
-                h.setOfficialType(rule.type());
-                h.setType(rule.type());
-                h.setName(rule.name());
-                h.setAuto(Boolean.TRUE);
+                // 历史数据补全：补齐官方类型并归一化已废弃类型为双态，仅脏数据才回写
+                String official = h.getOfficialType() != null
+                        ? Holiday.normalizeType(h.getOfficialType())
+                        : (rule != null ? Holiday.normalizeType(rule.type()) : Holiday.TYPE_WORKDAY);
+                String curType = Holiday.normalizeType(h.getType());
+                boolean dirty = false;
+                if (!official.equals(h.getOfficialType())) {
+                    h.setOfficialType(official);
+                    dirty = true;
+                }
+                if (!curType.equals(h.getType())) {
+                    h.setType(curType);
+                    dirty = true;
+                }
+                if (!isKnownType(h.getType())) {
+                    h.setType(official);
+                    h.setName(rule != null ? rule.name() : null);
+                    h.setAuto(Boolean.TRUE);
+                    dirty = true;
+                }
+                if (dirty) {
+                    toSave.add(h);
+                }
             }
-            toSave.add(h);
         }
         holidayRepository.saveAll(toSave);
 
@@ -325,12 +346,12 @@ public class HolidayService {
         String name = null;
         boolean manual = false;
         if (h != null && isKnownType(h.getType())) {
-            type = h.getType();
+            type = Holiday.normalizeType(h.getType());
             name = h.getName();
             manual = isManual(h);
         } else {
             ChineseHolidayRules.DayRule rule = ChineseHolidayRules.officialOf(date);
-            type = rule != null ? rule.type() : Holiday.TYPE_WORKDAY;
+            type = rule != null ? Holiday.normalizeType(rule.type()) : Holiday.TYPE_WORKDAY;
             name = rule != null ? rule.name() : null;
         }
         r.setType(type);
@@ -341,6 +362,43 @@ public class HolidayService {
         r.setDayType(type);
         r.setHolidayName(name);
         return r;
+    }
+
+    /**
+     * 判断某日期是否为休息日（含法定节假日、周末等）。
+     *
+     * @param date 目标日期
+     * @return 休息日返回 true；日期为空返回 false
+     */
+    @Transactional(readOnly = true)
+    public boolean isRestDay(LocalDate date) {
+        if (date == null) return false;
+        Holiday h = holidayRepository.findByDate(date).orElse(null);
+        if (h != null && isKnownType(h.getType())) {
+            return Holiday.isRestLike(h.getType());
+        }
+        ChineseHolidayRules.DayRule rule = ChineseHolidayRules.officialOf(date);
+        if (rule != null) {
+            return Holiday.isRestLike(rule.type());
+        }
+        return ChineseHolidayRules.isWeekend(date);
+    }
+
+    /**
+     * 取某日期的节假日名称（库记录优先，其次官方规则）。
+     *
+     * @param date 目标日期
+     * @return 节假日名称；无名称或日期为空返回 null
+     */
+    @Transactional(readOnly = true)
+    public String holidayNameOf(LocalDate date) {
+        if (date == null) return null;
+        Holiday h = holidayRepository.findByDate(date).orElse(null);
+        if (h != null && StringUtils.hasText(h.getName())) {
+            return h.getName();
+        }
+        ChineseHolidayRules.DayRule rule = ChineseHolidayRules.officialOf(date);
+        return rule != null ? rule.name() : null;
     }
 
     // ============ 兼容旧调用 ============
@@ -380,15 +438,11 @@ public class HolidayService {
     public String determineDayType(LocalDate date) {
         Holiday h = holidayRepository.findByDate(date).orElse(null);
         if (h != null && isKnownType(h.getType())) {
-            switch (h.getType()) {
-                case Holiday.TYPE_LEGAL:
-                    return OvertimeDayType.HOLIDAY;
-                case Holiday.TYPE_RESTDAY:
-                    return OvertimeDayType.RESTDAY;
-                default:
-                    // 工作日：若落在周末则为调休补班
-                    return ChineseHolidayRules.isWeekend(date) ? OvertimeDayType.ADJUSTED : OvertimeDayType.WORKDAY;
+            if (Holiday.isRestLike(h.getType())) {
+                return OvertimeDayType.RESTDAY;
             }
+            // 其余（WORKDAY）：若落在周末则为调休补班
+            return ChineseHolidayRules.isWeekend(date) ? OvertimeDayType.ADJUSTED : OvertimeDayType.WORKDAY;
         }
         return ChineseHolidayRules.isWeekend(date) ? OvertimeDayType.RESTDAY : OvertimeDayType.WORKDAY;
     }
@@ -401,19 +455,22 @@ public class HolidayService {
      */
     public BigDecimal ratioForDayType(String dayType) {
         if (OvertimeDayType.WORKDAY.equals(dayType) || OvertimeDayType.ADJUSTED.equals(dayType)) {
-            return new BigDecimal("0.5");
+            return configService.ratioWorkday();
         }
-        return BigDecimal.ONE;
+        return configService.ratioRest();
     }
 
     /**
-     * 按节假日类型返回折算比例：法定工作日 0.5，休息日 / 法定节假日 1。
+     * 按节假日类型返回折算比例：法定工作日 0.5，休息日 / 法定节假日 1，均改为可配置读取。
      *
      * @param type 节假日类型，见 Holiday.TYPE_*
      * @return 折算比例
      */
     public BigDecimal ratioForHolidayType(String type) {
-        return ChineseHolidayRules.ratioOf(type);
+        if (Holiday.TYPE_WORKDAY.equals(type)) {
+            return configService.ratioWorkday();
+        }
+        return configService.ratioRest();
     }
 
     /**
@@ -550,7 +607,8 @@ public class HolidayService {
     }
 
     /**
-     * 决定变更后该日显示的名称：法定节假日优先用官方名称，其次沿用原名，最后兜底为「自定义节假日」。
+     * 决定变更后该日显示的名称：有法定名称则用法定名称；WORKDAY 返回 null；
+     * 其余沿用旧名，没有则 null。
      *
      * @param date    目标日期
      * @param newType 变更后的类型
@@ -559,44 +617,35 @@ public class HolidayService {
      */
     private String resolveName(LocalDate date, String newType, String oldName) {
         ChineseHolidayRules.DayRule rule = ChineseHolidayRules.officialOf(date);
-        if (Holiday.TYPE_LEGAL.equals(newType)) {
-            if (rule != null && Holiday.TYPE_LEGAL.equals(rule.type()) && StringUtils.hasText(rule.name())) {
-                return rule.name();
-            }
-            return StringUtils.hasText(oldName) ? oldName : "自定义节假日";
+        if (rule != null && StringUtils.hasText(rule.name())) {
+            return rule.name();
         }
-        if (rule != null && StringUtils.hasText(rule.name())) return rule.name();
-        return null;
+        if (Holiday.TYPE_WORKDAY.equals(newType)) {
+            return null;
+        }
+        return StringUtils.hasText(oldName) ? oldName : null;
     }
 
     /**
-     * 是否属于高风险变更：法定节假日与工作日 / 休息日之间的互转。
+     * 是否属于高风险变更：有节假日名称即视为高风险（涉及国家法定节假日）。
      *
-     * <p>用异或判断「两边是否一边是法定节假日、另一边不是」，两边都是或都不是则属低风险。
-     * 工作日与休息日互转之所以不算高风险，是因为二者的加班折算口径差异小于法定节假日。
-     *
-     * @param officialType 官方类型
-     * @param newType      变更后的类型
-     * @return 属于高风险返回 true
+     * @param name 节假日名称
+     * @return 有名称返回 true
      */
-    private boolean isHighRisk(String officialType, String newType) {
-        if (officialType == null) return false;
-        return Holiday.TYPE_LEGAL.equals(officialType) != Holiday.TYPE_LEGAL.equals(newType);
+    private boolean isHighRisk(String name) {
+        return StringUtils.hasText(name);
     }
 
     /**
      * 生成高风险变更的确认文案。
      *
-     * @param officialType 官方类型
-     * @param newType      变更后的类型
+     * @param name    节假日名称
+     * @param newType 变更后的类型
      * @return 面向用户的警告文案
      */
-    private String warningOf(String officialType, String newType) {
-        if (Holiday.TYPE_LEGAL.equals(officialType)) {
-            return "该日期为国家法定节假日，强制变更可能导致历史数据变动风险，是否继续？";
-        }
-        return "该日期原为" + ChineseHolidayRules.typeLabel(officialType)
-                + "，变更为法定节假日可能导致历史数据变动风险，是否继续？";
+    private String warningOf(String name, String newType) {
+        return "该日期为国家法定节假日「" + name + "」，变更为「"
+                + ChineseHolidayRules.typeLabel(newType) + "」可能影响历史数据与后续加班折算口径，是否继续？";
     }
 
     /**
@@ -654,20 +703,22 @@ public class HolidayService {
      * @return 是合法类型返回 true
      */
     private boolean isKnownType(String type) {
-        return Holiday.TYPE_LEGAL.equals(type) || Holiday.TYPE_WORKDAY.equals(type)
-                || Holiday.TYPE_RESTDAY.equals(type);
+        return Holiday.isKnownType(type);
     }
 
     /**
-     * 校验并原样返回日类型。
+     * 校验并归一日类型：先把 LEGAL 归一到 RESTDAY，再限定只能为 WORKDAY / RESTDAY。
      *
      * @param type 日类型
-     * @return 校验通过的日类型
-     * @throws BizException 类型不为 LEGAL / WORKDAY / RESTDAY 时抛出
+     * @return 校验通过并归一后的日类型
+     * @throws BizException 类型不为 WORKDAY / RESTDAY 时抛出
      */
     private String normalizeType(String type) {
-        if (!isKnownType(type)) throw new BizException("日期类型不正确，应为 LEGAL / WORKDAY / RESTDAY");
-        return type;
+        String t = Holiday.normalizeType(type);
+        if (!Holiday.TYPE_WORKDAY.equals(t) && !Holiday.TYPE_RESTDAY.equals(t)) {
+            throw new BizException("日期类型不正确，应为 WORKDAY（法定工作日）或 RESTDAY（法定休息日）");
+        }
+        return t;
     }
 
     /**
