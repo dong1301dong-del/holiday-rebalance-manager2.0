@@ -19,6 +19,8 @@ set "ROOT=%~dp0"
 if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
 set "APPDIR=%ROOT%\server-java"
 set "JAR=%APPDIR%\target\server-java-1.0.0.jar"
+set "LOG=%APPDIR%\backend.log"
+set "ERRLOG=%APPDIR%\backend.err.log"
 set "RC=0"
 set "BUSY_PID="
 
@@ -47,6 +49,7 @@ for %%V in (DB_USERNAME DB_PASSWORD JWT_SECRET) do (
   if not defined %%V (
     set "RC=1"
     echo [错误] env.local.bat 里没有设置 %%V，后端会拒绝启动（这是刻意的安全设计）。
+    echo         提示：若文件里确实写了「set %%V=...」，多半是保存编码不对——请用 GBK（ANSI）编码 + CRLF 换行重新保存。
     goto :DONE
   )
 )
@@ -72,10 +75,13 @@ REM ---------- 5. 启动 ----------
 echo 正在启动调休管家后端（端口 %PORT%）...
 echo   JDK : %JAVA_HOME%
 echo   JAR : %JAR%
-echo   日志: 见标题为 tiaoxiu-backend 的新窗口
+echo   日志: %LOG%
 echo.
 cd /d "%APPDIR%"
-start "tiaoxiu-backend" cmd /k ""%JAVA_HOME%\bin\java.exe" -Dfile.encoding=UTF-8 -jar "%JAR%" --server.port=%PORT%"
+REM 用 PowerShell 的 Start-Process 以「隐藏窗口」方式拉起后端：不再弹出 Spring Boot 控制台窗口。
+REM 输出写入日志文件；该进程独立于本窗口，本窗口倒计时结束后关闭也不会把它带走。
+REM 日志按 UTF-8 写入（-DCONSOLE_LOG_CHARSET=UTF-8），用 VSCode 打开即可正常显示中文。
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%JAVA_HOME%\bin\java.exe' -ArgumentList '-DCONSOLE_LOG_CHARSET=UTF-8','-jar','%JAR%','--server.port=%PORT%' -WorkingDirectory '%APPDIR%' -WindowStyle Hidden -RedirectStandardOutput '%LOG%' -RedirectStandardError '%ERRLOG%'"
 
 REM ---------- 6. 轮询健康检查，最多等约 40 秒 ----------
 set "HAS_CURL=0"
@@ -103,13 +109,14 @@ echo.
 echo [启动成功] 后端已就绪，PID=%BUSY_PID%
 echo   访问地址: http://localhost:%PORT%
 echo   停止方式: 双击 stop.bat
+echo   运行日志: %LOG%
 goto :DONE
 
 :FAILED
 set "RC=1"
 echo.
 echo [启动失败] 等待 40 秒后健康检查仍未通过。
-echo   请查看标题为 tiaoxiu-backend 的窗口里的报错，常见原因:
+echo   请查看日志文件里的报错: %LOG%，常见原因:
 echo     1. MySQL 未启动，或 3306 端口没有监听
 echo     2. env.local.bat 里的数据库账号或口令不正确
 echo     3. 数据库表结构与代码不一致（ddl-auto=validate 会拒绝启动）
