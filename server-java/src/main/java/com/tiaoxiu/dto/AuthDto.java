@@ -43,6 +43,13 @@ public class AuthDto {
         private String position;
         /** 角色编码列表，如 [ADMIN, CLERK] */
         private List<String> roles;
+        /**
+         * 是否为内置账号。
+         *
+         * <p>内置管理员由运维通过环境变量管理密码，界面不提供改密入口；
+         * 前端据此隐藏「修改密码」卡片，避免用户点了才被后端拒绝。
+         */
+        private Boolean builtin;
     }
 
     /**

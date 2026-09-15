@@ -295,6 +295,12 @@ public class UserService {
             target.setTokenVersion(target.getTokenVersion() + 1L);
             userRepository.save(target);
         }
+        // 角色变更属于权限敏感操作，与新增/编辑/重置/停用/删除一致写入审计日志（记录变更前后角色）
+        String beforeCodes = currentCodes.isEmpty() ? "（无）" : String.join(",", currentCodes);
+        String afterCodes = (roleCodes == null || roleCodes.isEmpty()) ? "（无）" : String.join(",", roleCodes);
+        auditLogService.logChange(AuditLog.MODULE_USER, "分配角色",
+                target.getName() + " " + target.getUsername(), "分配角色 " + target.getUsername(),
+                beforeCodes, afterCodes, AuditLog.LEVEL_WARN);
     }
 
     /**

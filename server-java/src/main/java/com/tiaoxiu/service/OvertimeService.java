@@ -476,6 +476,9 @@ public class OvertimeService {
             if (req.getConvertedHours().compareTo(BigDecimal.ZERO) < 0) {
                 throw new BizException("转休时长不能为负数");
             }
+            // 其他转休必须说明来源：前端已强制备注，后端在 createOne 兜底，
+            // 覆盖「手工录入」与「Excel 导入」两条通道（导入会把它作为逐行错误回报）。
+            if (!StringUtils.hasText(req.getRemark())) throw new BizException("请填写备注");
             converted = req.getConvertedHours().setScale(2, RoundingMode.HALF_UP);
             hours = BigDecimal.ZERO;
             r.setStartTime(null);
@@ -549,6 +552,8 @@ public class OvertimeService {
             BigDecimal input = req.getConvertedHours() != null ? req.getConvertedHours() : r.getConvertedHours();
             if (input == null) throw new BizException("请填写转休时长");
             if (input.compareTo(BigDecimal.ZERO) < 0) throw new BizException("转休时长不能为负数");
+            // 其他转休备注必填，与新增路径、前端校验保持同一口径
+            if (!StringUtils.hasText(req.getRemark())) throw new BizException("请填写备注");
             converted = input.setScale(2, RoundingMode.HALF_UP);
             hours = BigDecimal.ZERO;
         } else {

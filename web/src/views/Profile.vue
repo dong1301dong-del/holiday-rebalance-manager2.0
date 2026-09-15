@@ -7,6 +7,9 @@
  * 余额可见性：系统管理员与录入员是特殊账号，不参与加班/调休录入，因此不展示「调休余额」，
  * 也不发起余额请求（后端 /api/report/balance 对他们无业务意义）。
  *
+ * 内置管理员（auth.user.builtin=true）：密码由运维经环境变量管理，界面隐藏改密卡片仅显示说明，
+ * 与后端 AuthService.changePassword 的拒绝逻辑保持一致。
+ *
  * 密码策略（与后端 PasswordUtil 同口径，三级都放行，仅提示强弱）：
  *  - 一级 低 / 红：8-20 位，字母（大写或小写皆可）+ 数字
  *  - 二级 中 / 黄：大写字母 + 小写字母 + 数字
@@ -33,6 +36,9 @@ const showConfirm = ref(false);
 const isSystemAccount = computed(() =>
   (auth.user?.roles || []).some((r) => r === 'ADMIN' || r === 'CLERK')
 );
+
+/** 内置管理员：密码由运维经环境变量 ADMIN_DEFAULT_PASSWORD 统一管理，界面不提供改密入口 */
+const isBuiltinAccount = computed(() => !!auth.user?.builtin);
 
 // 特殊字符集合，与后端 PasswordUtil.SPECIAL 保持一致
 const SPECIAL = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>/?`~]/;
@@ -90,7 +96,8 @@ async function submitPwd() {
       <div>
         <div class="page-title">个人中心</div>
         <div class="page-sub">
-          {{ isSystemAccount ? '查看账号信息，并管理登录密码' : '查看账号信息与调休余额，并管理登录密码' }}
+          {{ isBuiltinAccount ? '查看账号信息'
+             : (isSystemAccount ? '查看账号信息，并管理登录密码' : '查看账号信息与调休余额，并管理登录密码') }}
         </div>
       </div>
     </div>
@@ -114,7 +121,8 @@ async function submitPwd() {
         </div>
       </div>
 
-      <div class="card">
+      <!-- 内置管理员：后端禁止界面改密（AuthService.changePassword），此处直接隐藏入口，避免点了才被拒 -->
+      <div v-if="!isBuiltinAccount" class="card">
         <div class="card-title">修改密码</div>
         <div class="form-item"><label class="form-label">原密码</label>
           <div class="pwd-wrap">
@@ -169,6 +177,15 @@ async function submitPwd() {
         </div>
         <button class="btn btn-primary" style="width:100%;margin-top:16px" @click="submitPwd">确认修改</button>
       </div>
+
+      <!-- 内置管理员：密码由运维经环境变量统一管理，此处只给说明、不提供改密入口 -->
+      <div v-else class="card">
+        <div class="card-title">修改密码</div>
+        <div class="builtin-tip">
+          内置管理员账号的密码由运维通过环境变量统一管理，界面不提供修改入口。
+          如需变更，请联系运维设置 <code>ADMIN_DEFAULT_PASSWORD</code> 后重启服务。
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -176,6 +193,18 @@ async function submitPwd() {
 <style scoped>
 .profile-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; }
 @media (max-width: 900px) { .profile-grid { grid-template-columns: 1fr; } }
+.builtin-tip {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-secondary, #909399);
+}
+.builtin-tip code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--fill-light, #f4f4f5);
+  font-family: monospace;
+  font-size: 12px;
+}
 .big-avatar {
   width: 64px; height: 64px; border-radius: 50%;
   background: linear-gradient(135deg, var(--primary-light), var(--primary));

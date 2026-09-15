@@ -228,6 +228,8 @@ public class AuthService {
         info.setDepartment(user.getDepartment());
         info.setPosition(user.getPosition());
         info.setRoles(roles);
+        // 下发内置标记：前端据此隐藏「修改密码」入口（内置管理员密码只能由运维改环境变量）
+        info.setBuiltin(user.getBuiltin());
 
         AuthDto.LoginResponse resp = new AuthDto.LoginResponse();
         resp.setToken(token);

@@ -427,28 +427,6 @@ public class HolidayService {
     }
 
     /**
-     * 判定某日期的日类型（用于加班折算，保留旧加班模块的常量语义）。
-     *
-     * <p>额外区分「调休补班日」：库中类型是工作日但当天是周末时判定为 ADJUSTED，
-     * 因为补班日的折算比例与工作日一致（0.5），需要与普通休息日区分开。
-     *
-     * @param date 目标日期
-     * @return 日类型，见 {@link OvertimeDayType}
-     */
-    @Transactional(readOnly = true)
-    public String determineDayType(LocalDate date) {
-        Holiday h = holidayRepository.findByDate(date).orElse(null);
-        if (h != null && isKnownType(h.getType())) {
-            if (Holiday.isRestLike(h.getType())) {
-                return OvertimeDayType.RESTDAY;
-            }
-            // 其余（WORKDAY）：若落在周末则为调休补班
-            return ChineseHolidayRules.isWeekend(date) ? OvertimeDayType.ADJUSTED : OvertimeDayType.WORKDAY;
-        }
-        return ChineseHolidayRules.isWeekend(date) ? OvertimeDayType.RESTDAY : OvertimeDayType.WORKDAY;
-    }
-
-    /**
      * 按加班日类型返回折算比例：工作日 / 补班日 0.5；休息日 / 法定节假日 1。
      *
      * @param dayType 加班日类型，见 {@link OvertimeDayType}
