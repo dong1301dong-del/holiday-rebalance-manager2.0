@@ -5,7 +5,9 @@ server:
 
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3306/tiaoxiu?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false&createDatabaseIfNotExist=true
+    # 库名 Adjustment_Rest_Management。因 Windows MySQL 默认 lower_case_table_names=1，
+    # 库名在磁盘/元数据中以小写 adjustment_rest_management 存储，连接串此处写小写即实际名称（大小写不敏感）。
+    url: jdbc:mysql://localhost:3306/adjustment_rest_management?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false&createDatabaseIfNotExist=true
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:root}
     driver-class-name: com.mysql.cj.jdbc.Driver
