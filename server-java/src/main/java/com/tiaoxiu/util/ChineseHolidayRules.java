@@ -201,19 +201,6 @@ public final class ChineseHolidayRules {
     }
 
     /**
-     * 根据日类型返回加班折算比例：法定工作日 0.5，休息日与法定节假日均为 1。
-     *
-     * <p>业务规则：工作日加班只按一半折算调休，休息日与法定节假日加班全额折算。
-     *
-     * @param type 日类型，见 Holiday.TYPE_*
-     * @return 折算比例
-     */
-    public static java.math.BigDecimal ratioOf(String type) {
-        if (Holiday.TYPE_WORKDAY.equals(type)) return new java.math.BigDecimal("0.5");
-        return java.math.BigDecimal.ONE;
-    }
-
-    /**
      * 从指定日期起，向前或向后 7 天内寻找最近的可用于补班的周末。
      *
      * <p>筛选条件：必须是周末、不能已经是法定节假日（否则无补班意义）、且仍在同一年内

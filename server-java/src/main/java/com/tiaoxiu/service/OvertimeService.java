@@ -53,7 +53,8 @@ import java.util.stream.Collectors;
  *   <li>加班时长 = 结束时间 − 开始时间（小时，两位小数），不做任何时段扣除、不封顶；</li>
  *   <li>起止时间以 30 分钟为一跳，分钟必须为 00 或 30；</li>
  *   <li>转调休时长 = 加班时长 × 转调休系数；</li>
- *   <li>系数由节假日日历自动判定：法定工作日 0.5，休息日 1，法定节假日 1。</li>
+ *   <li>系数按节假日日历判定日类型后从系统配置读取（{@code leave.ratio.workday} / {@code leave.ratio.rest}），
+ *       默认法定工作日与补班日 0.5、法定休息日（含法定节假日）1，可由运维在配置页调整。</li>
  * </ul>
  */
 @Service
@@ -316,17 +317,6 @@ public class OvertimeService {
         if ("HOLIDAY".equals(dayType)) return "法定节假日";
         if ("ADJUSTED".equals(dayType)) return "补班日";
         return dayType;
-    }
-
-    /**
-     * 按日类型取折算系数：法定工作日与补班日 0.5，休息日与法定节假日 1。
-     *
-     * @param dayType 日类型
-     * @return 折算系数
-     */
-    public static BigDecimal ratioOf(String dayType) {
-        if (OvertimeRecord.DAY_WORKDAY.equals(dayType) || "ADJUSTED".equals(dayType)) return new BigDecimal("0.5");
-        return BigDecimal.ONE;
     }
 
     // ==================== 录入模式 ====================
