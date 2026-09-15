@@ -1,53 +1,134 @@
 @echo off
-chcp 65001 >nul
-setlocal
-set JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.20.101-hotspot
+setlocal EnableExtensions
 
-REM === è½½å…¥æ•æ„ŸçŽ¯å¢ƒå˜é‡ï¼ˆæ•°æ®åº“å£ä»¤ã€JWT å¯†é’¥ï¼‰ ===
-REM è¿™äº›å€¼ä¸å†å†™æ­»åœ¨æœ¬è„šæœ¬æˆ– application.yml ä¸­ï¼Œè€Œæ˜¯ç”±åŒç›®å½•çš„ env.local.bat æä¾›ï¼›
-REM è¯¥æ–‡ä»¶å·²è¢« .gitignore å¿½ç•¥ï¼Œè¯·å‹¿æäº¤åˆ°ä»£ç ä»“åº“ã€‚
-if exist "%~dp0env.local.bat" (
-  call "%~dp0env.local.bat"
-) else (
-  echo [é”™è¯¯] æœªæ‰¾åˆ° env.local.bat
-  echo        è¯·åœ¨åŒç›®å½•åˆ›å»ºè¯¥æ–‡ä»¶å¹¶è‡³å°‘è®¾ç½®ï¼š DB_USERNAME / DB_PASSWORD / JWT_SECRET
-  echo        å¯å‚è€ƒä»“åº“è¯´æ˜Žä¸­çš„ç¤ºä¾‹ï¼›ç¼ºå°‘è¿™äº›å˜é‡åŽç«¯ä¼šå¯åŠ¨å¤±è´¥ï¼ˆè¿™æ˜¯åˆ»æ„çš„å®‰å…¨è®¾è®¡ï¼‰ã€‚
-  pause
-  exit /b 1
+REM ============================================================
+REM  µ÷ÐÝ¹Ü¼Ò - Ò»¼üÆô¶¯ºó¶Ë
+REM
+REM  Óë¾É°æµÄÇø±ð£º
+REM   1) Æô¶¯ºóÂÖÑ¯ /api/auth/health£¬ÕæÕýÑéÖ¤·þÎñÊÇ·ñÆðÀ´ÁË£¬
+REM      ²»ÔÙÏñ¾É°æÄÇÑù²»¿´½á¹û¾Í´òÓ¡"ÒÑÔÚºóÌ¨Æô¶¯"¡£
+REM   2) Æô¶¯Ç°ÏÈ¼ì²é 8600 ¶Ë¿ÚÊÇ·ñÒÑ±»Õ¼ÓÃ£¬±ÜÃâ"´°¿ÚÒ»ÉÁ¾ÍÃ»ÁË"È´²»ÖªÔ­Òò¡£
+REM   3) ÓÃ cmd /k °ü×¡ java£¬ÍòÒ»Æô¶¯Ê§°Ü´°¿Ú²»»áË²¼ä¹Ø±Õ£¬ÄÜ¿´µ½±¨´í¡£
+REM   4) ´òÓ¡Ò»´Î³É¹¦/Ê§°Ü½áÂÛ£¬È»ºó 3 Ãë×Ô¶¯¹Ø´°£¨Ë«»÷¼´¿É£¬ÎÞÐè°´¼ü£©¡£
+REM
+REM  ÐèÒªÍ¬Ä¿Â¼µÄ env.local.bat Ìá¹© DB_USERNAME / DB_PASSWORD / JWT_SECRET
+REM ============================================================
+
+set "PORT=8600"
+set "ROOT=%~dp0"
+if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
+set "APPDIR=%ROOT%\server-java"
+set "JAR=%APPDIR%\target\server-java-1.0.0.jar"
+set "RC=0"
+set "BUSY_PID="
+
+REM ---------- 1. ÕÒ JDK ----------
+if not defined JAVA_HOME set "JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.20.101-hotspot"
+if not exist "%JAVA_HOME%\bin\java.exe" (
+  set "RC=1"
+  echo [´íÎó] ÕÒ²»µ½ JDK: %JAVA_HOME%\bin\java.exe
+  echo         Çë°Ñ±¾½Å±¾¿ªÍ·µÄ JAVA_HOME ¸Ä³ÉÄãµÄ JDK 17 °²×°Â·¾¶¡£
+  goto :DONE
 )
 
-if "%DB_USERNAME%"=="" (
-  echo [é”™è¯¯] env.local.bat ä¸­æœªè®¾ç½® DB_USERNAMEï¼ŒåŽç«¯ä¼šæ‹’ç»å¯åŠ¨ã€‚
-  pause
-  exit /b 1
+REM ---------- 2. ÔØÈëÃô¸Ð»·¾³±äÁ¿ ----------
+if not exist "%ROOT%\env.local.bat" (
+  set "RC=1"
+  echo [´íÎó] ÕÒ²»µ½ env.local.bat
+  echo         ÇëÔÚÍ¬Ä¿Â¼´´½¨¸ÃÎÄ¼þ£¬ÖÁÉÙ°üº¬ÈýÐÐ:
+  echo           set DB_USERNAME=Êý¾Ý¿âÕËºÅ
+  echo           set DB_PASSWORD=Êý¾Ý¿â¿ÚÁî
+  echo           set JWT_SECRET=ÖÁÉÙ32Î»µÄËæ»úÃÜÔ¿
+  goto :DONE
 )
-if "%DB_PASSWORD%"=="" (
-  echo [é”™è¯¯] env.local.bat ä¸­æœªè®¾ç½® DB_PASSWORDï¼ŒåŽç«¯ä¼šæ‹’ç»å¯åŠ¨ã€‚
-  pause
-  exit /b 1
-)
-if "%JWT_SECRET%"=="" (
-  echo [é”™è¯¯] env.local.bat ä¸­æœªè®¾ç½® JWT_SECRETï¼ŒåŽç«¯ä¼šæ‹’ç»å¯åŠ¨ã€‚
-  pause
-  exit /b 1
-)
+call "%ROOT%\env.local.bat"
 
-cd /d "%~dp0server-java"
-
-if not exist target\server-java-1.0.0.jar (
-  echo [é”™è¯¯] æœªæ‰¾åˆ° jar åŒ…ï¼ˆtarget\server-java-1.0.0.jarï¼‰
-  echo è¯·å…ˆåœ¨ server-java ç›®å½•æ‰§è¡Œï¼š mvn -DskipTests package
-  pause
-  exit /b 1
+for %%V in (DB_USERNAME DB_PASSWORD JWT_SECRET) do (
+  if not defined %%V (
+    set "RC=1"
+    echo [´íÎó] env.local.bat ÀïÃ»ÓÐÉèÖÃ %%V£¬ºó¶Ë»á¾Ü¾øÆô¶¯£¨ÕâÊÇ¿ÌÒâµÄ°²È«Éè¼Æ£©¡£
+    goto :DONE
+  )
 )
 
-echo æ­£åœ¨å¯åŠ¨è°ƒä¼‘ç®¡å®¶åŽç«¯ï¼ˆç«¯å£ 8600ï¼Œéœ€ MySQL 3306 å·²è¿è¡Œï¼‰...
-start "tiaoxiu-backend" "%JAVA_HOME%\bin\java.exe" -jar target/server-java-1.0.0.jar --server.port=8600
+REM ---------- 3. jar ÊÇ·ñ´æÔÚ ----------
+if not exist "%JAR%" (
+  set "RC=1"
+  echo [´íÎó] ÕÒ²»µ½ jar: %JAR%
+  echo         ÇëÏÈÔÚ server-java Ä¿Â¼Ö´ÐÐ:  mvn -DskipTests package
+  goto :DONE
+)
 
+REM ---------- 4. ¶Ë¿ÚÊÇ·ñÒÑ±»Õ¼ÓÃ ----------
+call :PortPid %PORT%
+if defined BUSY_PID (
+  set "RC=1"
+  echo [´íÎó] ¶Ë¿Ú %PORT% ÒÑ±» PID %BUSY_PID% Õ¼ÓÃ£¬ºó¶Ë¿ÉÄÜÒÑ¾­ÔÚÔËÐÐÁË¡£
+  echo         ÈçÐèÖØÆô: ÏÈË«»÷ stop.bat Í£Ö¹£¬ÔÙÔËÐÐ±¾½Å±¾¡£
+  goto :DONE
+)
+
+REM ---------- 5. Æô¶¯ ----------
+echo ÕýÔÚÆô¶¯µ÷ÐÝ¹Ü¼Òºó¶Ë£¨¶Ë¿Ú %PORT%£©...
+echo   JDK : %JAVA_HOME%
+echo   JAR : %JAR%
+echo   ÈÕÖ¾: ¼û±êÌâÎª tiaoxiu-backend µÄÐÂ´°¿Ú
 echo.
-echo åŽç«¯å·²åœ¨åŽå°å¯åŠ¨ï¼Œçª—å£æ ‡é¢˜ä¸º "tiaoxiu-backend"ã€‚
-echo   - æµè§ˆå™¨è®¿é—®ï¼š http://localhost:8600
-echo   - å…³é—­æ–¹å¼ 1ï¼š è¿è¡Œ stop.bat
-echo   - å…³é—­æ–¹å¼ 2ï¼š ç›´æŽ¥å…³é—­åä¸º tiaoxiu-backend çš„çª—å£
-echo   - å…³é—­æ–¹å¼ 3ï¼š åœ¨ VS Code é›†æˆç»ˆç«¯ç”¨ Ctrl+Cï¼ˆè‹¥åœ¨é‚£é‡Œç›´æŽ¥å¯åŠ¨ï¼‰
-endlocal
+cd /d "%APPDIR%"
+start "tiaoxiu-backend" cmd /k ""%JAVA_HOME%\bin\java.exe" -Dfile.encoding=UTF-8 -jar "%JAR%" --server.port=%PORT%"
+
+REM ---------- 6. ÂÖÑ¯½¡¿µ¼ì²é£¬×î¶àµÈÔ¼ 40 Ãë ----------
+set "HAS_CURL=0"
+if exist "%SystemRoot%\System32\curl.exe" set "HAS_CURL=1"
+echo ÕýÔÚµÈ´ý·þÎñ¾ÍÐ÷£¨×î¶à 40 Ãë£©...
+set /a TRIES=0
+
+:WAIT
+set /a TRIES+=1
+if "%HAS_CURL%"=="1" (
+  "%SystemRoot%\System32\curl.exe" -s -o nul --max-time 2 "http://127.0.0.1:%PORT%/api/auth/health" >nul 2>&1
+) else (
+  set "BUSY_PID="
+  call :PortPid %PORT%
+)
+if "%HAS_CURL%"=="1" if not errorlevel 1 goto :STARTED
+if "%HAS_CURL%"=="0" if defined BUSY_PID goto :STARTED
+if %TRIES% GEQ 20 goto :FAILED
+ping -n 3 127.0.0.1 >nul
+goto :WAIT
+
+:STARTED
+call :PortPid %PORT%
+echo.
+echo [Æô¶¯³É¹¦] ºó¶ËÒÑ¾ÍÐ÷£¬PID=%BUSY_PID%
+echo   ·ÃÎÊµØÖ·: http://localhost:%PORT%
+echo   Í£Ö¹·½Ê½: Ë«»÷ stop.bat
+goto :DONE
+
+:FAILED
+set "RC=1"
+echo.
+echo [Æô¶¯Ê§°Ü] µÈ´ý 40 Ãëºó½¡¿µ¼ì²éÈÔÎ´Í¨¹ý¡£
+echo   Çë²é¿´±êÌâÎª tiaoxiu-backend µÄ´°¿ÚÀïµÄ±¨´í£¬³£¼ûÔ­Òò:
+echo     1. MySQL Î´Æô¶¯£¬»ò 3306 ¶Ë¿ÚÃ»ÓÐ¼àÌý
+echo     2. env.local.bat ÀïµÄÊý¾Ý¿âÕËºÅ»ò¿ÚÁî²»ÕýÈ·
+echo     3. Êý¾Ý¿â±í½á¹¹Óë´úÂë²»Ò»ÖÂ£¨ddl-auto=validate »á¾Ü¾øÆô¶¯£©
+echo     4. È±ÉÙ»·¾³±äÁ¿£¬SecurityStartupValidator ¾Ü¾øÆô¶¯
+goto :DONE
+
+REM ---------- ÊÕÎ²£º´òÓ¡½á¹û + 3 Ãëºó×Ô¶¯¹Ø´° ----------
+:DONE
+echo.
+if "%RC%"=="0" (
+  echo ½Å±¾Ö´ÐÐ½á¹û£º³É¹¦¡£±¾´°¿Ú 3 Ãëºó×Ô¶¯¹Ø±Õ...
+) else (
+  echo ½Å±¾Ö´ÐÐ½á¹û£ºÊ§°Ü£¨Ô­Òò¼ûÉÏ·½ÌáÊ¾£©¡£±¾´°¿Ú 3 Ãëºó×Ô¶¯¹Ø±Õ...
+)
+ping -n 4 127.0.0.1 >nul
+endlocal & exit /b %RC%
+
+REM ---------- ×Ó³ÌÐò: È¡¼àÌýÖ¸¶¨¶Ë¿ÚµÄ½ø³Ì PID ----------
+:PortPid
+set "BUSY_PID="
+for /f "tokens=5" %%p in ('netstat -ano -p TCP ^| findstr "LISTENING" ^| findstr /C:":%1 "') do set "BUSY_PID=%%p"
+goto :eof

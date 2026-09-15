@@ -1,0 +1,9 @@
+# Git 属性 / 换行约定
+#
+# Windows 批处理必须使用 CRLF 换行。若被存成 LF，cmd.exe 无法正确解析
+# goto / :标签 以及多行 if ( ... ) else ( ... ) 括号块，表现为命令被跳过、
+# 或报 "XXX was unexpected at this time"，而脚本本身看起来完全正常。
+# 这里显式钉死，避免任何机器 checkout 后换行被改动。
+
+*.bat text eol=crlf
+*.cmd text eol=crlf

@@ -1,9 +1,73 @@
 @echo off
-chcp 65001 >nul
-taskkill /FI "WINDOWTITLE eq tiaoxiu-backend" /T /F >nul 2>&1
-if %errorlevel%==0 (
-  echo å·²åœæ­¢è°ƒä¼‘ç®¡å®¶åŽç«¯ï¼ˆtiaoxiu-backendï¼‰ã€‚
-) else (
-  echo æœªæ‰¾åˆ°æ ‡é¢˜ä¸º tiaoxiu-backend çš„è¿›ç¨‹ã€‚
-  echo è‹¥ä½ æ˜¯ç”¨ VS Code é›†æˆç»ˆç«¯ç›´æŽ¥ java -jar å¯åŠ¨çš„ï¼Œè¯·åˆ°é‚£ä¸ªç»ˆç«¯æŒ‰ Ctrl+C åœæ­¢ã€‚
+setlocal EnableExtensions
+
+REM ============================================================
+REM  µ÷ÐÝ¹Ü¼Ò - Í£Ö¹ºó¶Ë
+REM
+REM  Óë¾É°æµÄÇø±ð£º
+REM   ¾É°æÓÃ taskkill /FI "WINDOWTITLE eq tiaoxiu-backend" °´´°¿Ú±êÌâÕÒ½ø³Ì£¬
+REM   Õâ¸ö°ì·¨²»¿É¿¿£ºÖ»Òªºó¶Ë²»ÊÇÓÉ start.bat ¿ªµÄÄÇ¸ö´°¿ÚÆô¶¯µÄ£¨±ÈÈç VS Code
+REM   ÖÕ¶Ë¡¢ÃüÁîÐÐ java -jar¡¢IDE¡¢¼Æ»®ÈÎÎñµÈÈÎºÎÃ»ÓÐ´°¿ÚµÄ·½Ê½£©£¬¾ÍÓÀÔ¶ÕÒ²»µ½
+REM   Ä¿±ê£¬ÓÚÊÇÖ»»á´òÓ¡"Î´ÕÒµ½±êÌâÎª tiaoxiu-backend µÄ½ø³Ì"¡£
+REM
+REM   ±¾°æ¸ÄÎª£ºÏÈ°´¡¸¼àÌý 8600 ¶Ë¿ÚµÄ½ø³Ì¡¹¶¨Î»²¢½áÊø ¡ª¡ª ºó¶ËÒ»¶¨ÔÚ¼àÌýÕâ¸ö
+REM   ¶Ë¿Ú£¬ËùÒÔÎÞÂÛËüÊÇÔõÃ´Æô¶¯µÄ¶¼ÄÜÍ£µô£¬ÕâÊÇÖ÷ÒªÊÖ¶Î¡£½áÊøÖ®ºóÔÙË³ÊÖ°´´°¿Ú
+REM   ±êÌâÇåÀí start.bat ÁôÏÂµÄÄÇ¸ö cmd ´°¿Ú£¬ÕâÖ»ÊÇÊÕÎ²£¬Ê§°ÜÒ²²»Ó°ÏìÍ£Ö¹¡£
+REM
+REM   Èç¹û¸Ä¹ýºó¶Ë¶Ë¿Ú£¬ÇëÍ¬²½ÐÞ¸ÄÏÂÃæµÄ PORT¡£
+REM  ´òÓ¡Ò»´Î³É¹¦/Ê§°Ü½áÂÛ£¬È»ºó 3 Ãë×Ô¶¯¹Ø´°¡£
+REM ============================================================
+
+set "PORT=8600"
+set "RC=0"
+set "BUSY_PID="
+
+call :PortPid %PORT%
+
+if not defined BUSY_PID (
+  echo [ÌáÊ¾] ¶Ë¿Ú %PORT% ÉÏÃ»ÓÐ¼àÌý½ø³Ì£¬ºó¶Ëµ±Ç°²¢Ã»ÓÐÔÚÔËÐÐ£¨ÎÞÐèÍ£Ö¹£©¡£
+  goto :DONE
 )
+
+echo ·¢ÏÖºó¶Ë½ø³Ì PID=%BUSY_PID%£¨ÕýÔÚ¼àÌý¶Ë¿Ú %PORT%£©£¬×¼±¸Í£Ö¹...
+taskkill /PID %BUSY_PID% /T /F >nul 2>&1
+
+if errorlevel 1 (
+  set "RC=1"
+  echo [Ê§°Ü] ½áÊø PID=%BUSY_PID% Ê§°Ü¡£
+  echo         Èç¹ûÌáÊ¾"¾Ü¾ø·ÃÎÊ"£¬ÇëÓÒ¼ü±¾½Å±¾£¬Ñ¡Ôñ"ÒÔ¹ÜÀíÔ±Éí·ÝÔËÐÐ"¡£
+  goto :DONE
+)
+
+echo ÒÑ·¢ËÍ½áÊøÖ¸Áî£¬ÕýÔÚÈ·ÈÏ¶Ë¿ÚÊÇ·ñÊÍ·Å...
+
+REM ¶þ´ÎÈ·ÈÏ¶Ë¿ÚÒÑ¾­ÊÍ·Å£¨ÕâÊÇÅÐ¶Ï"ÊÇ·ñÕæµÄÍ£µô"µÄÎ¨Ò»ÒÀ¾Ý£©
+call :PortPid %PORT%
+if defined BUSY_PID (
+  set "RC=1"
+  echo [Ê§°Ü] ¶Ë¿Ú %PORT% ÈÔ±» PID=%BUSY_PID% Õ¼ÓÃ£¬Î´ÍêÈ«Í£Ö¹¡£
+  goto :DONE
+)
+
+echo [Í£Ö¹³É¹¦] ºó¶ËÒÑ½áÊø£¬¶Ë¿Ú %PORT% ÒÑÊÍ·Å¡£
+
+REM ÊÕÎ²ÇåÀí£º¹Øµô start.bat ÁôÏÂµÄÄÇ¸ö cmd ´°¿Ú£¨¾¡Á¦¶øÎª£¬Ê§°Ü²»Ó°Ïì½áÂÛ£©
+taskkill /FI "WINDOWTITLE eq tiaoxiu-backend" /T /F >nul 2>&1
+goto :DONE
+
+REM ---------- ÊÕÎ²£º´òÓ¡½á¹û + 3 Ãëºó×Ô¶¯¹Ø´° ----------
+:DONE
+echo.
+if "%RC%"=="0" (
+  echo ½Å±¾Ö´ÐÐ½á¹û£º³É¹¦¡£±¾´°¿Ú 3 Ãëºó×Ô¶¯¹Ø±Õ...
+) else (
+  echo ½Å±¾Ö´ÐÐ½á¹û£ºÊ§°Ü£¨Ô­Òò¼ûÉÏ·½ÌáÊ¾£©¡£±¾´°¿Ú 3 Ãëºó×Ô¶¯¹Ø±Õ...
+)
+ping -n 4 127.0.0.1 >nul
+endlocal & exit /b %RC%
+
+REM ---------- ×Ó³ÌÐò: È¡¼àÌýÖ¸¶¨¶Ë¿ÚµÄ½ø³Ì PID ----------
+:PortPid
+set "BUSY_PID="
+for /f "tokens=5" %%p in ('netstat -ano -p TCP ^| findstr "LISTENING" ^| findstr /C:":%1 "') do set "BUSY_PID=%%p"
+goto :eof
