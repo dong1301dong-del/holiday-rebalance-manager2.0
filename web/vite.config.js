@@ -37,7 +37,7 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    emptyOutDir: false, // 环境的安全删除拦截器与 vite 清理冲突，改为覆盖写入
+    emptyOutDir: true, // 每次构建先清空 dist，避免旧 hash 分片残留（残留会导致 index.html 引用与被删分片不一致）
     chunkSizeWarningLimit: 1024,
   },
 });

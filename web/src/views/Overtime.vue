@@ -23,12 +23,12 @@ import { ok, err } from '../toast';
 /** 日类型中文与默认系数（后端以日历判定为准，此处仅作兜底展示） */
 const DAY_TYPE = {
   WORKDAY: '法定工作日',
-  RESTDAY: '休息日',
-  LEGAL: '法定节假日',
-  HOLIDAY: '法定节假日', // 后端历史上用过 HOLIDAY，与 LEGAL 同义
+  RESTDAY: '法定休息日',
+  LEGAL: '法定休息日',   // 历史值：三态已并为双态，LEGAL 与 RESTDAY 折算口径一致
+  HOLIDAY: '法定休息日', // 后端历史上用过 HOLIDAY，与 LEGAL 同义
   ADJUSTED: '补班日',
 };
-/** 折算系数：法定工作日与补班日 1:0.5，休息日与法定节假日 1:1 */
+/** 折算系数：法定工作日与补班日 1:0.5，法定休息日（含法定节假日）1:1 */
 const defaultRatio = (dayType) => (dayType === 'WORKDAY' || dayType === 'ADJUSTED' ? 0.5 : 1);
 const labelOf = (dayType) => DAY_TYPE[dayType] || dayType || '-';
 
